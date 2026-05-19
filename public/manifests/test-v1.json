@@ -1,0 +1,21 @@
+{
+  "manifest_version": "test-v1",
+  "pl_proposal_version": {
+    "code_git_sha": "635100c8a46e",
+    "smaPeriod": 120,
+    "turningPointPeriod": 10
+  },
+  "windows": [
+    {
+      "window_id": "btcusdt-15m-2023-02",
+      "market": "BTCUSDT",
+      "interval": "15m",
+      "is_range": {
+        "start_ms": 1675209600000,
+        "end_ms": 1677628800000
+      },
+      "precompute_path": "precomputes/btcusdt-15m-2023-02.json"
+    }
+  ],
+  "content_hash_sha256": "9c3d3d7b2ff2f63fa2adc2e2fe2d3590d1756e28eb286c146dce1e9e0f8fae1e"
+}
