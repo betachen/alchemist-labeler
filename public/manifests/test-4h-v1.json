@@ -1,0 +1,21 @@
+{
+  "manifest_version": "test-4h-v1",
+  "pl_proposal_version": {
+    "code_git_sha": "635100c8a46e",
+    "smaPeriod": 90,
+    "turningPointPeriod": 13
+  },
+  "windows": [
+    {
+      "window_id": "btcusdt-4h-2023",
+      "market": "BTCUSDT",
+      "interval": "4h",
+      "is_range": {
+        "start_ms": 1672531200000,
+        "end_ms": 1704067200000
+      },
+      "precompute_path": "precomputes/btcusdt-4h-2023.json"
+    }
+  ],
+  "content_hash_sha256": "570bbf793cb5e8e88bf9b68b224fcf6473e60d7039b49d4ee580532b61cbb743"
+}

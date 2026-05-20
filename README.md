@@ -65,6 +65,15 @@ JSON-array format). The output JSON contains `bars`, `pl_segments`,
 `ht_trendline`, and `pl_proposal_version` (with the pl-export git SHA
 embedded at build time).
 
+The bundled `15m` fixture uses the provisional `SMA=120,
+turning-point-period=10` profile. Confirmed interval profiles live in
+`../alchemist/docs/design/pl-precompute-parameters.md`; currently `15m` uses
+`SMA=120, turning-point-period=20`, `4h` uses `SMA=90,
+turning-point-period=13`, and `1d` uses `SMA=60, turning-point-period=10`.
+`sideway threshold` and `rollback length` are
+documented there as PL strategy context, but are not currently consumed by
+`pl-export` or emitted in the precompute JSON.
+
 `public/precomputes/` is gitignored — regenerate per IS window.
 
 ### 3. Register the window in a manifest (~1 min)

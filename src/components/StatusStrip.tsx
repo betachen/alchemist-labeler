@@ -45,6 +45,20 @@ const EDIT_LEGEND: { key: string; label: string }[] = [
   { key: 'Esc',     label: 'cancel' },
 ]
 
+function workflowHint(state: SegmentState): string {
+  switch (state) {
+    case 'unreviewed':
+      return 'current: press U/O/P/S first'
+    case 'human_prelabel':
+      return 'current: press R before A'
+    case 'overlay_revealed':
+      return 'current: press A, D, or E'
+    case 'accepted':
+    case 'edited':
+      return 'current: terminal'
+  }
+}
+
 export function StatusStrip() {
   const status         = useLabelSession((s) => s.status)
   const segments       = useLabelSession((s) => s.segments)
@@ -52,11 +66,17 @@ export function StatusStrip() {
   const editActive     = useLabelSession((s) => s.edit.active)
   const editPendingEnd = useLabelSession((s) => s.edit.pendingEndMs)
   const reviewerId     = useLabelSession((s) => s.reviewerId)
+  const precompute     = useLabelSession((s) => s.precompute)
+  const barStepMs      = useLabelSession((s) => s.barStepMs)
 
   if (status !== 'ready' || segments.length === 0) return null
 
   const seg  = segments[currentIdx]
   const prev = segments[currentIdx - 1] ?? null
+  const firstBarMs = precompute?.bars[0]?.ms ?? null
+  const prefixBars = firstBarMs !== null && barStepMs > 0
+    ? Math.max(0, Math.round((segments[0].pl_start_ms - firstBarMs) / barStepMs))
+    : 0
   const startMs = prev ? (prev.end_ms_override ?? prev.pl_end_ms) : seg.pl_start_ms
   const effectiveEnd = seg.end_ms_override ?? seg.pl_end_ms
   const displayEnd = editActive && editPendingEnd !== null ? editPendingEnd : effectiveEnd
@@ -86,6 +106,12 @@ export function StatusStrip() {
           )}
         </span>
 
+        {currentIdx === 0 && prefixBars > 0 && (
+          <span className="font-mono text-[11px] text-gray-500">
+            prefix context: {prefixBars} bars before Seg 0
+          </span>
+        )}
+
         <span className="text-gray-500">label:</span>
         <span className={`font-semibold ${seg.label ? LABEL_COLOR[seg.label] : 'text-gray-600'}`}>
           {labelText}
@@ -112,6 +138,9 @@ export function StatusStrip() {
 
       {/* Row 2 — hotkey legend */}
       <div className="flex items-center px-4 pb-1.5 text-[10px] text-gray-600 gap-3 flex-wrap">
+        <span className="font-mono text-amber-300/80 whitespace-nowrap">
+          {editActive ? 'current: adjust boundary, then Enter' : workflowHint(seg.state)}
+        </span>
         {legend.map((k) => (
           <span key={k.key} className="whitespace-nowrap">
             <kbd className="px-1 rounded bg-[#1e2329] text-gray-400 font-mono">{k.key}</kbd>

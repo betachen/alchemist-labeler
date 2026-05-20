@@ -84,6 +84,11 @@ Storage layout:
 - `labels/` — gitignored (reviewer output, not served)
 - `scripts/sign-manifest.mjs` — re-computes and writes back `content_hash_sha256` for a manifest file. Run after editing any manifest. Canonical-serialization algorithm MUST stay in lockstep with [src/lib/canonicalJson.ts](src/lib/canonicalJson.ts).
 
+PL precompute parameters are interval-specific and documented in
+`../alchemist/docs/design/pl-precompute-parameters.md`. The precompute schema
+currently records only `smaPeriod` and `turningPointPeriod`; `sideway threshold`
+and `rollback length` are not part of the JSON contract yet.
+
 ## Code map
 
 | Concern | Lives in |
