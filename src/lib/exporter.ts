@@ -164,6 +164,14 @@ export async function buildAndSignLabelSet(input: BuildLabelSetInput): Promise<L
   return { ...unsigned, content_hash_sha256: hash }
 }
 
+export function labelSetFilename(windowId: string): string {
+  return `${windowId}.manual_v1.json`
+}
+
+export function labelSetPrettyJson(labelSet: LabelSet): string {
+  return JSON.stringify(labelSet, null, 2) + '\n'
+}
+
 // Triggers a browser download of the signed LabelSet. Filename derived from
 // the window id so multi-window output stays unambiguous.
 export function downloadLabelSet(labelSet: LabelSet, windowId: string): void {
@@ -171,16 +179,39 @@ export function downloadLabelSet(labelSet: LabelSet, windowId: string): void {
   // diffs. Hash was computed over the CANONICAL form, not this pretty form,
   // so re-serializing here doesn't affect hash validation downstream as long
   // as the consumer also canonical-serializes before hashing.
-  const text = JSON.stringify(labelSet, null, 2) + '\n'
+  const text = labelSetPrettyJson(labelSet)
   const blob = new Blob([text], { type: 'application/json' })
   const url  = URL.createObjectURL(blob)
   const a    = document.createElement('a')
   a.href     = url
-  a.download = `${windowId}.manual_v1.json`
+  a.download = labelSetFilename(windowId)
   document.body.appendChild(a)
   a.click()
   document.body.removeChild(a)
   URL.revokeObjectURL(url)
+}
+
+export interface SaveLabelSetResult {
+  path: string
+}
+
+export async function saveLabelSetToData(labelSet: LabelSet, windowId: string): Promise<SaveLabelSetResult> {
+  const res = await fetch('/api/label-set', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      filename: labelSetFilename(windowId),
+      content: labelSetPrettyJson(labelSet),
+    }),
+  })
+  const payload = (await res.json().catch(() => null)) as { path?: string; error?: string } | null
+  if (!res.ok) {
+    throw new Error(payload?.error ?? `HTTP ${res.status}`)
+  }
+  if (!payload?.path) {
+    throw new Error('local save response did not include a path')
+  }
+  return { path: payload.path }
 }
 
 // Exposed for tests / verification: returns the canonical string used to

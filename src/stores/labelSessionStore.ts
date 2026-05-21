@@ -34,10 +34,13 @@ interface LabelSessionState {
   barStepMs: number          // 1-bar duration in ms (e.g. 900_000 for 15m)
   edit: BoundaryEditState
   reviewerId: string
+  savedWindowIds: string[]
 
   beginLoading: (manifestVersion: string, windowId: string) => void
   setReady: (manifest: Manifest, window: WindowEntry, precompute: Precompute) => void
   setError: (msg: string) => void
+  setSavedWindowIds: (windowIds: string[]) => void
+  markWindowSaved: (windowId: string) => void
   toggleOverlay: () => void
 
   // Navigation
@@ -56,6 +59,7 @@ interface LabelSessionState {
   enterEdit: () => void
   exitEdit: () => void
   shiftEditEnd: (deltaBars: number) => void
+  setEditEnd: (endMs: number) => void
   commitEdit: () => void
 }
 
@@ -82,6 +86,20 @@ function effectiveEnd(seg: Segment): number {
 
 const EMPTY_EDIT: BoundaryEditState = { active: false, segIdx: null, pendingEndMs: null }
 
+function clampEditableEnd(segments: Segment[], idx: number, proposed: number, barStepMs: number): number | null {
+  const seg = segments[idx]
+  const next = segments[idx + 1]
+  if (!seg || !next || barStepMs <= 0) return null
+  const segStart = idx === 0
+    ? seg.pl_start_ms
+    : effectiveEnd(segments[idx - 1])
+  const nextEnd = effectiveEnd(next)
+  const lo = segStart + barStepMs
+  const hi = nextEnd - barStepMs
+  if (proposed < lo || proposed > hi) return null
+  return proposed
+}
+
 export const useLabelSession = create<LabelSessionState>((set) => ({
   status: 'idle',
   errorMessage: null,
@@ -98,6 +116,7 @@ export const useLabelSession = create<LabelSessionState>((set) => ({
   barStepMs:   0,
   edit:        EMPTY_EDIT,
   reviewerId:  'betachen',
+  savedWindowIds: [],
 
   beginLoading: (manifestVersion, windowId) =>
     set({
@@ -132,6 +151,11 @@ export const useLabelSession = create<LabelSessionState>((set) => ({
     })
   },
   setError: (errorMessage) => set({ status: 'error', errorMessage }),
+  setSavedWindowIds: (savedWindowIds) => set({ savedWindowIds }),
+  markWindowSaved: (windowId) =>
+    set((s) => s.savedWindowIds.includes(windowId)
+      ? s
+      : { savedWindowIds: [...s.savedWindowIds, windowId] }),
   toggleOverlay: () => set((s) => ({ overlayVisible: !s.overlayVisible })),
 
   setCurrentIdx: (idx) =>
@@ -168,12 +192,17 @@ export const useLabelSession = create<LabelSessionState>((set) => ({
       if (s.edit.active) return s
       const seg = s.segments[s.currentIdx]
       if (!seg) return s
-      // Allowed only in unreviewed or human_prelabel; after reveal user must
-      // reject first.
-      if (seg.state !== 'unreviewed' && seg.state !== 'human_prelabel') return s
       const next = s.segments.slice()
-      next[s.currentIdx] = { ...seg, label, state: 'human_prelabel' }
-      return { segments: next }
+      next[s.currentIdx] = {
+        ...seg,
+        label,
+        state: seg.state === 'edited' ? 'edited' : 'accepted',
+        reviewed_at_ms: Date.now(),
+      }
+      return {
+        segments: next,
+        currentIdx: s.currentIdx >= s.segments.length - 1 ? s.currentIdx : s.currentIdx + 1,
+      }
     }),
   revealCurrent: () =>
     set((s) => {
@@ -219,9 +248,8 @@ export const useLabelSession = create<LabelSessionState>((set) => ({
     set((s) => {
       const seg = s.segments[s.currentIdx]
       if (!seg) return s
-      // Edit allowed once overlay has been revealed (you can't move boundaries
-      // before you've seen what PL had to say).
-      if (seg.state !== 'overlay_revealed') return s
+      // Edit allowed after a segment has been marked.
+      if (seg.state !== 'accepted' && seg.state !== 'edited') return s
       // Last segment's end is the IS-range end; not editable (would push past
       // the manifest boundary).
       if (s.currentIdx === s.segments.length - 1) return s
@@ -235,20 +263,19 @@ export const useLabelSession = create<LabelSessionState>((set) => ({
       if (!s.edit.active || s.edit.segIdx === null) return s
       const idx  = s.edit.segIdx
       const seg  = s.segments[idx]
-      const next = s.segments[idx + 1]
-      if (!seg || !next) return s
+      if (!seg) return s
       const pending = s.edit.pendingEndMs ?? effectiveEnd(seg)
       const proposed = pending + deltaBars * s.barStepMs
-      // Clamp to (segStart + 1 bar, nextEnd - 1 bar) so neither this nor the
-      // next segment degenerates to zero/negative length.
-      const segStart = idx === 0
-        ? seg.pl_start_ms
-        : effectiveEnd(s.segments[idx - 1])
-      const nextEnd  = effectiveEnd(next)
-      const lo = segStart + s.barStepMs
-      const hi = nextEnd  - s.barStepMs
-      if (proposed < lo || proposed > hi) return s
-      return { edit: { ...s.edit, pendingEndMs: proposed } }
+      const clamped = clampEditableEnd(s.segments, idx, proposed, s.barStepMs)
+      if (clamped === null) return s
+      return { edit: { ...s.edit, pendingEndMs: clamped } }
+    }),
+  setEditEnd: (endMs) =>
+    set((s) => {
+      if (!s.edit.active || s.edit.segIdx === null) return s
+      const clamped = clampEditableEnd(s.segments, s.edit.segIdx, endMs, s.barStepMs)
+      if (clamped === null) return s
+      return { edit: { ...s.edit, pendingEndMs: clamped } }
     }),
   commitEdit: () =>
     set((s) => {

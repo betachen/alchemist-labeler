@@ -1,20 +1,30 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createChart, ColorType, CrosshairMode } from 'lightweight-charts'
 import type {
   IChartApi,
   ISeriesApi,
+  MouseEventParams,
   SeriesMarker,
+  Time,
   UTCTimestamp,
 } from 'lightweight-charts'
 import { useKlines } from '../../hooks/useKlines'
 import { useLabelSession } from '../../stores/labelSessionStore'
 import type { Candle } from '../../types/market'
+import type { Label } from '../../types/segment'
 import type { Segment } from '../../types/segment'
 
 const SPLIT_MIN = 0.35
 const SPLIT_MAX = 0.88
 const DIVIDER_HIT_PX = 8   // invisible hit area height
 const GAP = 0.015           // gap between kline bottom and volume top
+
+const LABEL_BADGE_COLOR: Record<Label, string> = {
+  uptrend:     '#1D9E75',
+  oscillation: '#a78bfa',
+  pullback:    '#f59e0b',
+  sideways:    '#94a3b8',
+}
 
 // Overlay-visible states (per-segment reveal advances at R; subsequent terminal
 // states keep it visible).
@@ -27,6 +37,13 @@ const REVEALED_STATES: ReadonlySet<Segment['state']> = new Set([
 interface EffectiveBoundary {
   start_ms: number
   end_ms:   number
+}
+
+interface LabelBadge {
+  key: string
+  label: Label
+  left: number
+  top: number
 }
 
 // Resolve effective boundaries across all segments in one pass, accounting for
@@ -61,6 +78,7 @@ export function KlineChart() {
 
   // `split` = fraction of chart height given to the kline pane
   const [split, setSplit] = useState(0.72)
+  const [labelBadges, setLabelBadges] = useState<LabelBadge[]>([])
   const splitRef = useRef(split)
   splitRef.current = split
 
@@ -79,11 +97,41 @@ export function KlineChart() {
   const editActive       = useLabelSession((s) => s.edit.active)
   const editSegIdx       = useLabelSession((s) => s.edit.segIdx)
   const editPendingEndMs = useLabelSession((s) => s.edit.pendingEndMs)
+  const setEditEnd       = useLabelSession((s) => s.setEditEnd)
 
   const boundaries = useMemo(
     () => resolveBoundaries(segments, editActive ? editSegIdx : null, editPendingEndMs),
     [segments, editActive, editSegIdx, editPendingEndMs],
   )
+
+  const recomputeLabelBadges = useCallback(() => {
+    const chart = chartRef.current
+    const candle = candleRef.current
+    if (!chart || !candle) return
+
+    const next: LabelBadge[] = []
+    for (let i = 0; i < segments.length; i++) {
+      const seg = segments[i]
+      const b = boundaries[i]
+      if (!seg.label || !b) continue
+
+      const startX = chart.timeScale().timeToCoordinate(Math.floor(b.start_ms / 1000) as UTCTimestamp)
+      const endX = chart.timeScale().timeToCoordinate(Math.floor(b.end_ms / 1000) as UTCTimestamp)
+      const startY = candle.priceToCoordinate(seg.pl_start_price)
+      const endY = candle.priceToCoordinate(seg.pl_end_price)
+      if (startX === null || endX === null || startY === null || endY === null) continue
+      const left = (startX + endX) / 2
+      const top = (startY + endY) / 2
+
+      next.push({
+        key: `${seg.idx}-${seg.label}`,
+        label: seg.label,
+        left,
+        top,
+      })
+    }
+    setLabelBadges(next)
+  }, [boundaries, segments])
 
   // ── Init chart once ────────────────────────────────────────────────────────
   useEffect(() => {
@@ -183,7 +231,8 @@ export function KlineChart() {
     if (!chartRef.current) return
     chartRef.current.priceScale('right').applyOptions({ scaleMargins: klineMargins(split) })
     chartRef.current.priceScale('vol').applyOptions({ scaleMargins: volMargins(split) })
-  }, [split])
+    requestAnimationFrame(recomputeLabelBadges)
+  }, [split, recomputeLabelBadges])
 
   // ── Reset prevLenRef when window_id changes ──────────────────────────────
   const windowId    = useLabelSession((s) => s.windowId)
@@ -193,6 +242,7 @@ export function KlineChart() {
     if (chartKeyRef.current !== windowId) {
       chartKeyRef.current = windowId
       prevLenRef.current  = 0   // force full setData() on next klines update
+      setLabelBadges([])
     }
   }, [windowId])
 
@@ -218,14 +268,16 @@ export function KlineChart() {
       if (prevLenRef.current === 0) {
         chartRef.current.timeScale().fitContent()
       }
+      requestAnimationFrame(recomputeLabelBadges)
     } else {
       // Same count: in-place update of the last (current) candle
       const last = klines[klines.length - 1]
       candleRef.current.update(last)
       volRef.current.update(toVolumeDatum(last))
+      requestAnimationFrame(recomputeLabelBadges)
     }
     prevLenRef.current = klines.length
-  }, [klines])
+  }, [klines, recomputeLabelBadges])
 
   // ── (Re)create per-segment line series whenever the window/segment count changes ──
   useEffect(() => {
@@ -245,7 +297,7 @@ export function KlineChart() {
     const newHts: ISeriesApi<'Line'>[] = []
     for (let i = 0; i < n; i++) {
       newPls.push(chart.addLineSeries({
-        color:                  '#f97316',
+        color:                  '#ff4fd8',
         lineWidth:              2,
         priceScaleId:           'right',
         lastValueVisible:       false,
@@ -290,7 +342,8 @@ export function KlineChart() {
       }
       hts[i].setData(slice)
     }
-  }, [precompute, segments, boundaries])
+    requestAnimationFrame(recomputeLabelBadges)
+  }, [precompute, segments, boundaries, recomputeLabelBadges])
 
   // ── Sync per-segment visibility ────────────────────────────────────────
   useEffect(() => {
@@ -319,6 +372,25 @@ export function KlineChart() {
     ]
     candle.setMarkers(markers)
   }, [currentIdx, boundaries, editActive])
+
+  useEffect(() => {
+    const chart = chartRef.current
+    if (!chart) return
+    const handler = () => recomputeLabelBadges()
+    chart.timeScale().subscribeVisibleTimeRangeChange(handler)
+    return () => chart.timeScale().unsubscribeVisibleTimeRangeChange(handler)
+  }, [recomputeLabelBadges])
+
+  useEffect(() => {
+    const chart = chartRef.current
+    if (!chart || !editActive) return
+    const handler = (param: MouseEventParams<Time>) => {
+      if (typeof param.time !== 'number') return
+      setEditEnd(param.time * 1000)
+    }
+    chart.subscribeClick(handler)
+    return () => chart.unsubscribeClick(handler)
+  }, [editActive, setEditEnd])
 
   // ── Drag logic ─────────────────────────────────────────────────────────────
   function onDividerMouseDown(e: React.MouseEvent) {
@@ -372,6 +444,20 @@ export function KlineChart() {
           <p className="text-gray-600 text-sm">No candlestick data</p>
         </div>
       )}
+      {labelBadges.map((badge) => (
+        <div
+          key={badge.key}
+          className="absolute z-20 pointer-events-none rounded bg-[#0b0e11]/85 px-1.5 py-0.5 font-semibold text-[10px] leading-none border border-[#2b3139]"
+          style={{
+            left: badge.left,
+            top: badge.top,
+            color: LABEL_BADGE_COLOR[badge.label],
+            transform: 'translate(-50%, -140%)',
+          }}
+        >
+          {badge.label}
+        </div>
+      ))}
     </div>
   )
 }

@@ -15,7 +15,7 @@ function fmtUtc(ms: number): string {
 const LABEL_COLOR: Record<Label, string> = {
   uptrend:     'text-[#1D9E75]',
   oscillation: 'text-[#a78bfa]',
-  pullback:    'text-[#94a3b8]',
+  pullback:    'text-[#f59e0b]',
   sideways:    'text-[#94a3b8]',
 }
 
@@ -30,9 +30,6 @@ const STATE_COLOR: Record<SegmentState | 'rejected_then_relabeled', string> = {
 
 const LEGEND: { key: string; label: string }[] = [
   { key: 'U/O/P/S', label: 'label' },
-  { key: 'R',       label: 'reveal' },
-  { key: 'A',       label: 'accept' },
-  { key: 'D',       label: 'reject' },
   { key: 'E',       label: 'edit' },
   { key: '←/→',    label: 'nav' },
   { key: 'N',       label: 'next unreviewed' },
@@ -40,6 +37,7 @@ const LEGEND: { key: string; label: string }[] = [
 ]
 
 const EDIT_LEGEND: { key: string; label: string }[] = [
+  { key: 'click',   label: 'set end' },
   { key: '←/→',    label: '±1 bar' },
   { key: 'Enter',   label: 'commit' },
   { key: 'Esc',     label: 'cancel' },
@@ -48,14 +46,13 @@ const EDIT_LEGEND: { key: string; label: string }[] = [
 function workflowHint(state: SegmentState): string {
   switch (state) {
     case 'unreviewed':
-      return 'current: press U/O/P/S first'
+      return 'current: press U/O/P/S to mark'
     case 'human_prelabel':
-      return 'current: press R before A'
     case 'overlay_revealed':
-      return 'current: press A, D, or E'
+      return 'current: press U/O/P/S to mark'
     case 'accepted':
     case 'edited':
-      return 'current: terminal'
+      return 'current: marked; press U/O/P/S to change'
   }
 }
 
@@ -139,7 +136,7 @@ export function StatusStrip() {
       {/* Row 2 — hotkey legend */}
       <div className="flex items-center px-4 pb-1.5 text-[10px] text-gray-600 gap-3 flex-wrap">
         <span className="font-mono text-amber-300/80 whitespace-nowrap">
-          {editActive ? 'current: adjust boundary, then Enter' : workflowHint(seg.state)}
+          {editActive ? 'current: click target candle, then Enter' : workflowHint(seg.state)}
         </span>
         {legend.map((k) => (
           <span key={k.key} className="whitespace-nowrap">

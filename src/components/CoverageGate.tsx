@@ -5,7 +5,7 @@ import {
   MIN_ACTIVE_COVERAGE,
   MIN_BARS_PER_ACTIVE_STATE,
 } from '../lib/coverage'
-import { buildAndSignLabelSet, downloadLabelSet } from '../lib/exporter'
+import { buildAndSignLabelSet, saveLabelSetToData } from '../lib/exporter'
 
 interface FloorRowProps {
   label: string
@@ -34,11 +34,13 @@ export function CoverageGate() {
   const currentWindow = useLabelSession((s) => s.window)
   const windowId      = useLabelSession((s) => s.windowId)
   const reviewerId    = useLabelSession((s) => s.reviewerId)
+  const manifest      = useLabelSession((s) => s.manifest)
+  const markWindowSaved = useLabelSession((s) => s.markWindowSaved)
 
   const [exportState, setExportState] = useState<
     | { kind: 'idle' }
     | { kind: 'busy' }
-    | { kind: 'done'; hash: string }
+    | { kind: 'done'; hash: string; path: string }
     | { kind: 'error'; message: string }
   >({ kind: 'idle' })
 
@@ -50,19 +52,41 @@ export function CoverageGate() {
   if (status !== 'ready') return null
 
   const inactiveTotal = report.bars_by_label.pullback + report.bars_by_label.sideways
+  const windowIndex = manifest && windowId
+    ? manifest.windows.findIndex((w) => w.window_id === windowId)
+    : -1
+  const previousWindowId = manifest && windowIndex > 0
+    ? manifest.windows[windowIndex - 1].window_id
+    : null
+  const nextWindowId = manifest && windowIndex >= 0 && windowIndex < manifest.windows.length - 1
+    ? manifest.windows[windowIndex + 1].window_id
+    : null
 
-  async function onExportClick() {
-    if (!precompute || !currentWindow || !windowId) return
+  async function saveCurrentLabelSet(): Promise<boolean> {
+    if (!precompute || !currentWindow || !windowId) return false
     setExportState({ kind: 'busy' })
     try {
       const signed = await buildAndSignLabelSet({
         window: currentWindow, precompute, segments, barStepMs, reviewerId,
       })
-      downloadLabelSet(signed, windowId)
-      setExportState({ kind: 'done', hash: signed.content_hash_sha256 })
+      const saved = await saveLabelSetToData(signed, windowId)
+      markWindowSaved(windowId)
+      setExportState({ kind: 'done', hash: signed.content_hash_sha256, path: saved.path })
+      return true
     } catch (e) {
       setExportState({ kind: 'error', message: e instanceof Error ? e.message : String(e) })
+      return false
     }
+  }
+
+  async function onExportClick() {
+    await saveCurrentLabelSet()
+  }
+
+  async function onNextWindowClick() {
+    if (!nextWindowId || !report.can_export) return
+    const ok = await saveCurrentLabelSet()
+    if (ok) navigateToWindow(nextWindowId)
   }
 
   return (
@@ -114,8 +138,8 @@ export function CoverageGate() {
             <span className="text-gray-300">{report.bars_by_label.oscillation} bars</span>
           </div>
           <div className="flex justify-between">
-            <span className="text-gray-500">pullback</span>
-            <span className="text-gray-500">{report.bars_by_label.pullback} bars</span>
+            <span className="text-[#f59e0b]">pullback</span>
+            <span className="text-gray-300">{report.bars_by_label.pullback} bars</span>
           </div>
           <div className="flex justify-between">
             <span className="text-gray-500">sideways</span>
@@ -153,6 +177,34 @@ export function CoverageGate() {
       </div>
 
       <div className="mt-auto px-4 py-3">
+        <div className="grid grid-cols-2 gap-2 mb-3">
+          <button
+            type="button"
+            disabled={!previousWindowId}
+            onClick={() => previousWindowId && navigateToWindow(previousWindowId)}
+            className={
+              'py-2 rounded-md font-semibold text-xs transition-colors ' +
+              (previousWindowId
+                ? 'bg-[#1e2329] hover:bg-[#2b3139] text-gray-200'
+                : 'bg-[#11161c] text-gray-600 cursor-not-allowed')
+            }
+          >
+            上一段
+          </button>
+          <button
+            type="button"
+            disabled={!nextWindowId || !report.can_export || exportState.kind === 'busy'}
+            onClick={onNextWindowClick}
+            className={
+              'py-2 rounded-md font-semibold text-xs transition-colors ' +
+              (nextWindowId && report.can_export && exportState.kind !== 'busy'
+                ? 'bg-[#1e2329] hover:bg-[#2b3139] text-gray-200'
+                : 'bg-[#11161c] text-gray-600 cursor-not-allowed')
+            }
+          >
+            {exportState.kind === 'busy' ? '保存中' : '下一段'}
+          </button>
+        </div>
         <button
           type="button"
           disabled={!report.can_export || exportState.kind === 'busy'}
@@ -165,7 +217,7 @@ export function CoverageGate() {
           }
         >
           {exportState.kind === 'busy' ? 'Signing…' :
-           report.can_export ? 'Export label_set' : 'Export disabled'}
+           report.can_export ? 'Save label_set' : 'Export disabled'}
         </button>
         {!report.can_export && exportState.kind === 'idle' && (
           <p className="mt-2 text-[10px] text-gray-600 leading-relaxed">
@@ -175,7 +227,7 @@ export function CoverageGate() {
         {exportState.kind === 'done' && (
           <p className="mt-2 text-[10px] text-gray-500 leading-relaxed font-mono break-all">
             hash: <span className="text-gray-400">{exportState.hash.slice(0, 16)}…</span>
-            <br />downloaded as <span className="text-gray-400">{windowId}.manual_v1.json</span>
+            <br />saved to <span className="text-gray-400">{exportState.path}</span>
           </p>
         )}
         {exportState.kind === 'error' && (
@@ -186,4 +238,10 @@ export function CoverageGate() {
       </div>
     </aside>
   )
+}
+
+function navigateToWindow(windowId: string): void {
+  const url = new URL(window.location.href)
+  url.searchParams.set('window_id', windowId)
+  window.location.assign(url.toString())
 }

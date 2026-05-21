@@ -63,10 +63,6 @@ export function useLabelHotkeys() {
       const lbl = LABEL_KEY[code]
       if (lbl) { s.assignLabel(lbl); return }
 
-      // State machine transitions
-      if (code === 'KeyR') { s.revealCurrent(); return }
-      if (code === 'KeyA') { s.acceptCurrent(); return }
-      if (code === 'KeyD') { s.rejectCurrent(); return }
       if (code === 'KeyE') { s.enterEdit(); return }
     }
     window.addEventListener('keydown', onKey)

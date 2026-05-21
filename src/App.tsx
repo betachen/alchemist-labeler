@@ -1,14 +1,11 @@
-import type { ReactNode } from 'react'
+import { useEffect, type ReactNode } from 'react'
 import { useSessionBootstrap } from './hooks/useSessionBootstrap'
 import { useLabelHotkeys } from './hooks/useLabelHotkeys'
 import { useLabelSession } from './stores/labelSessionStore'
 import { KlineChart } from './components/chart/KlineChart'
 import { StatusStrip } from './components/StatusStrip'
 import { CoverageGate } from './components/CoverageGate'
-
-function fmtUtc(ms: number): string {
-  return new Date(ms).toISOString().replace('T', ' ').replace('.000Z', 'Z')
-}
+import { WindowProgress } from './components/WindowProgress'
 
 function Centered({ children }: { children: ReactNode }) {
   return (
@@ -37,27 +34,41 @@ function App() {
   useLabelHotkeys()
   const status         = useLabelSession((s) => s.status)
   const errorMessage   = useLabelSession((s) => s.errorMessage)
-  const windowId       = useLabelSession((s) => s.windowId)
-  const currentWindow  = useLabelSession((s) => s.window)
+  const manifest       = useLabelSession((s) => s.manifest)
+  const setSavedWindowIds = useLabelSession((s) => s.setSavedWindowIds)
   const overlayVisible = useLabelSession((s) => s.overlayVisible)
+
+  useEffect(() => {
+    if (status !== 'ready' || !manifest) return
+    let cancelled = false
+    void (async () => {
+      try {
+        const res = await fetch('/api/label-set-progress')
+        if (!res.ok) return
+        const payload = (await res.json()) as { window_ids?: string[] }
+        if (!cancelled && Array.isArray(payload.window_ids)) {
+          setSavedWindowIds(payload.window_ids)
+        }
+      } catch {
+        // Progress discovery is a local-dev convenience; labeling still works
+        // if the endpoint is unavailable.
+      }
+    })()
+    return () => { cancelled = true }
+  }, [status, manifest, setSavedWindowIds])
 
   return (
     <div className="flex flex-col h-full bg-[#0b0e11] text-white">
       <header className="flex items-center h-12 px-4 bg-[#161a1e] border-b border-[#2b3139] shrink-0 gap-3">
         <span className="font-bold text-lg tracking-tight">Alchemist Labeler</span>
-        {currentWindow && (
-          <span className="text-xs text-gray-400">
-            {currentWindow.market} {currentWindow.interval} ·{' '}
-            {fmtUtc(currentWindow.is_range.start_ms)} → {fmtUtc(currentWindow.is_range.end_ms)} · {windowId}
-          </span>
-        )}
+        {status === 'ready' && <WindowProgress />}
         {status === 'error' && (
           <span className="text-xs text-[#D85A30]">refused</span>
         )}
         {status === 'ready' && (
           <span className="ml-auto text-xs text-gray-500">
             peek:{' '}
-            <span className={overlayVisible ? 'text-[#f97316] font-medium' : 'text-gray-600'}>
+            <span className={overlayVisible ? 'text-[#ff4fd8] font-medium' : 'text-[#ff4fd8]/60'}>
               {overlayVisible ? 'on' : 'off'}
             </span>{' '}
             <span className="opacity-50">(space)</span>
