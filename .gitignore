@@ -10,5 +10,8 @@ public/precomputes/
 # manual cp to alchemist/tests/support/strategytester/manual_v1/ when feeding 阶段 b.
 labels/
 
+# Local market-data symlink.
+bars-formatted
+
 *.log
 .DS_Store
