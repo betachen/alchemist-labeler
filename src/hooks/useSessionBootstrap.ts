@@ -107,6 +107,31 @@ export function useSessionBootstrap(): void {
           )
         }
 
+        // 6. If the opt-in weak-label layer is present, it MUST align 1:1 with
+        //    pl_segments — deriveSegments indexes system_opinions[idx] to
+        //    source the load-bearing `sampling_reason` export field. A
+        //    misaligned upstream JSON would otherwise silently export the
+        //    wrong sampling bucket. Refuse rather than mislabel.
+        const opinions = precompute.system_opinions
+        if (opinions) {
+          const pl = precompute.pl_segments
+          if (opinions.length !== pl.length) {
+            throw new Error(
+              `Precompute system_opinions length (${opinions.length}) does not ` +
+                `match pl_segments length (${pl.length}).`,
+            )
+          }
+          for (let i = 0; i < pl.length; i++) {
+            if (opinions[i].start_ms !== pl[i].start_ms || opinions[i].end_ms !== pl[i].end_ms) {
+              throw new Error(
+                `Precompute system_opinions[${i}] range ` +
+                  `[${opinions[i].start_ms}, ${opinions[i].end_ms}] does not align ` +
+                  `with pl_segments[${i}] [${pl[i].start_ms}, ${pl[i].end_ms}].`,
+              )
+            }
+          }
+        }
+
         setReady(manifest, window, precompute)
       } catch (e) {
         setError(e instanceof Error ? e.message : String(e))

@@ -4,10 +4,16 @@ Standalone TS/React tool for producing regime label JSON to feed
 `signal-substrate-v1` 阶段 b. UI side only — calibrator consumption lives in
 the alchemist main repo.
 
-Current shipped code still implements the legacy `manual_v1` full-window
-labeler. The active next contract is `manual_regime_audit_v1`, described in
+Current shipped code implements the `manual_regime_audit_v1` two-layer audit
+schema (阶段 2a). Migrated: the label model, export contract, multi-axis
+coverage, filename suffix, and primary-label hotkeys. Still fixed-default
+pending 阶段 2b: the structure-tag picker, the `label_confidence` input, the
+blind/assisted `audit_mode` toggle, and explicit audit-sample selection — see
+"阶段 2a scope" below. The contract is described in
 [docs/labeling-regime-strategy.md](docs/labeling-regime-strategy.md) and the
-sibling alchemist task `docs/tasks/signal-substrate-v1.md`.
+sibling alchemist task `docs/tasks/signal-substrate-v1.md`. Legacy `manual_v1`
+is fully removed from this codebase — only old `.manual_v1.json` files on disk
+still carry that schema.
 
 Parent task: [docs/tasks/signal-substrate-v1-stage-a-labeler.md](../alchemist/docs/tasks/signal-substrate-v1-stage-a-labeler.md)
 in the alchemist repo (sibling directory).
@@ -37,7 +43,7 @@ No build coupling. No shared library. No Node ↔ C++ runtime link.
 |---|---|---|---|
 | A | C++ pre-compute CLI location | `alchemist/tools/pl-export/` (opt-in) | Single subdir with its own CMakeLists. NOT included in default `add_subdirectory` chain. Build via `-DBUILD_PL_EXPORT=ON`. Must not change `StrategyTester` / `alchemyd` default build. |
 | B | Precompute delivery | Static JSON | UI does `fetch('./precomputes/<window_id>.json')`. Pre-compute writes once per IS window, UI re-reads on load. |
-| C | Label JSON destination | `/data/alchemist-labeler/labels/` | Current code writes signed legacy `manual_v1` files there. The active next contract should write `.manual_regime_audit_v1.json` files and copy them to `alchemist/tests/support/strategytester/manual_regime_audit_v1/`. |
+| C | Label JSON destination | `/data/alchemist-labeler/labels/` | Code writes signed `.manual_regime_audit_v1.json` files there. Copy them to `alchemist/tests/support/strategytester/manual_regime_audit_v1/`. |
 | D | Single vs multi labeler | Single labeler in v1; schema records `reviewer_id` / `labeler_id` (`betachen`) | Multi-labeler workflow (kappa, agreement) deferred. Schema does not lock out future multi. |
 
 ## window_manifest (Step 1 schema, frozen)
@@ -105,32 +111,49 @@ and `rollback length` are not part of the JSON contract yet.
 | Global keyboard router (all hotkeys) | [src/hooks/useLabelHotkeys.ts](src/hooks/useLabelHotkeys.ts) |
 | Candle + per-segment overlay + boundary markers | [src/components/chart/KlineChart.tsx](src/components/chart/KlineChart.tsx) |
 | Per-segment info bar + hotkey legend | [src/components/StatusStrip.tsx](src/components/StatusStrip.tsx) |
-| Coverage tally + export-gate UI + local save trigger | [src/components/CoverageGate.tsx](src/components/CoverageGate.tsx) |
-| Pure coverage math + floor constants | [src/lib/coverage.ts](src/lib/coverage.ts) |
+| Audit completeness panel + export-gate UI + local save trigger | [src/components/CoverageGate.tsx](src/components/CoverageGate.tsx) |
+| Pure multi-axis audit-coverage math + export gate | [src/lib/coverage.ts](src/lib/coverage.ts) |
 | LabelSet builder + canonical-hash signing | [src/lib/exporter.ts](src/lib/exporter.ts) |
 | Canonical JSON (sorted keys, no whitespace) | [src/lib/canonicalJson.ts](src/lib/canonicalJson.ts) |
 | SHA-256 hex (browser `crypto.subtle`) | [src/lib/sha256.ts](src/lib/sha256.ts) |
 | Manifest hash signer (one-shot script) | [scripts/sign-manifest.mjs](scripts/sign-manifest.mjs) |
 
+## 阶段 2a scope
+
+阶段 2a migrated the schema in code. Per segment the export carries the full
+`manual_regime_audit_v1` field set, but several inputs ship as fixed defaults
+pending 阶段 2b:
+
+- `primary_label` — set by the reviewer via the `U/D/O/S/T/A` hotkeys (live).
+- `structure_tags` — always `[]`. No tag picker yet; `tradable_structure`
+  coverage axis is degenerate (0) until 2b.
+- `label_confidence` — always `high`. No confidence picker yet.
+- `audit_mode` — always `blind`. No assisted-mode UI yet.
+- `sampling_reason` — sourced per segment from the precompute's weak-label
+  layer (`system_opinions[idx].sampling_bucket`); falls back to
+  `random_baseline_samples` when the precompute carries no system opinions.
+  The precompute weak-label layer is parsed but NOT displayed (decision:
+  "system_opinions 仅数据接入").
+
 ## Segment Label Workflow
 
 ```
-             U/O/P/S (assignLabel)
-unreviewed ───────────────────────► accepted ── E + ←/→ + Enter ──► edited
-                                      ▲  │
-                                      │  │ U/O/P/S changes label
-                                      └──┘ and refreshes reviewed_at_ms
+           U/D/O/S/T/A (assignPrimaryLabel)
+unreviewed ───────────────────────────────► accepted ── E + ←/→ + Enter ──► edited
+                                              ▲  │
+                                              │  │ U/D/O/S/T/A changes primary_label
+                                              └──┘ and refreshes reviewed_at_ms
 ```
 
 Implementation rules (enforced by guards in
 [labelSessionStore.ts](src/stores/labelSessionStore.ts)):
 
-- `assignLabel` is the primary workflow action. It sets the current segment's
-  label, marks it `accepted`, stamps `reviewed_at_ms`, and advances to the
-  next segment.
-- Re-pressing `U/O/P/S` on an already marked segment changes the label and
-  refreshes `reviewed_at_ms`. This is the intended correction path; there is
-  no separate accept/reject review step in the current UI.
+- `assignPrimaryLabel` is the primary workflow action. It sets the current
+  segment's `primary_label`, marks it `accepted`, stamps `reviewed_at_ms`, and
+  advances to the next segment.
+- Re-pressing `U/D/O/S/T/A` on an already marked segment changes the
+  `primary_label` and refreshes `reviewed_at_ms`. This is the intended
+  correction path; there is no separate accept/reject review step in the UI.
 - `human_prelabel` and `overlay_revealed` remain in the TypeScript state union
   as historical/defensive states, but the normal hotkey workflow does not enter
   them.
@@ -157,7 +180,7 @@ Ignored while typing in `INPUT` / `TEXTAREA`. Gated on `status === 'ready'`.
 
 | Key | Normal mode | Edit mode |
 |---|---|---|
-| `U` / `O` / `P` / `S` | mark current segment as uptrend / oscillation / pullback / sideways, then advance | (ignored) |
+| `U` / `D` / `O` / `S` / `T` / `A` | set `primary_label` to uptrend / downtrend / oscillation / sideways / transition / ambiguous, then advance | (ignored) |
 | `E` | enter edit-boundary mode | — |
 | `Esc` | — | cancel edit |
 | `Enter` | (ignored) | commit edit |
@@ -165,42 +188,61 @@ Ignored while typing in `INPUT` / `TEXTAREA`. Gated on `status === 'ready'`.
 | `N` | jump to next `unreviewed` segment | (ignored) |
 | `Space` | toggle all PL + HT_TRENDLINE overlays | toggle overlays |
 
-There are no `R` / `A` / `D` review hotkeys in the current UI. Segment labeling
-is intentionally direct: choose a label, advance, and optionally navigate back
-to change the label or edit the boundary.
+The 6 `primary_label` keys are the only label hotkeys. `P` (legacy pullback)
+is freed — pullback is now a `structure_tag`, not a primary label, and there
+is no tag-picker hotkey yet (阶段 2b). There is no accept/reject review step:
+labeling is direct — choose a primary label, advance, and optionally navigate
+back to change it or edit the boundary.
 
-## Legacy manual_v1 Coverage Gate
+## Audit Export Gate (manual_regime_audit_v1)
 
 Pure math: [src/lib/coverage.ts](src/lib/coverage.ts). UI:
 [src/components/CoverageGate.tsx](src/components/CoverageGate.tsx).
 
-This section documents the current shipped `manual_v1` full-window gate. It is
-not the target gate for `manual_regime_audit_v1`; the audit workflow should
-replace this with an audit completeness panel and multi-axis coverage metrics.
+The legacy `manual_v1` single 30%-`active_coverage` gate is **removed**. Per
+[signal-substrate-v1.md §"Load-bearing labeling decisions" #6], the audit
+workflow does NOT require per-window active coverage. The export gate is:
+
+```text
+can_export = non-empty audit set AND every selected segment terminal
+```
+
+In v1 the "selected audit set" is every PL segment in the window (no real
+sample-selection step yet — 阶段 2b). So `can_export` reduces to: at least one
+segment, and every segment in `accepted` ∪ `edited`.
 
 Bar count per segment is half-open: `(effective_end - effective_start) / barStepMs`.
 Adjacent segments share a boundary, so half-open avoids double-counting.
 
-Legacy floors (constants in [coverage.ts](src/lib/coverage.ts)):
+Coverage is reported as **multi-axis diagnostics**, never collapsed into one
+numerator (`CoverageReport` in [coverage.ts](src/lib/coverage.ts)):
 
-| Floor | Threshold | Why |
+| Axis | Field | Counts |
 |---|---|---|
-| `n_uptrend` | ≥ 100 bars | each active state needs enough samples for calibration mean/stddev |
-| `n_oscillation` | ≥ 100 bars | same |
-| `active_coverage` | ≥ 0.30 of labelable bars | active states must cover enough of the window to bound regime drift |
-| `all_terminal` | every segment in `accepted` ∪ `edited` | no `unreviewed` segments allowed in the normal workflow |
+| audit completeness | `reviewed_coverage` | terminal segments / selected segments |
+| core regime | `core_regime_high_confidence_bars` | high-confidence bars per `{uptrend, downtrend, oscillation}` |
+| tradable structure | `tradable_structure_bars_{all,high}_confidence` | bars per `structure_tag` (overlaps the primary axis) |
+| risk filter | `risk_filter_bars_{all,high}_confidence` | `transition` bars |
+| excluded | `excluded_low_weight_bars` | `sideways` + `ambiguous` bars |
 
-`pullback` + `sideways` are `labeled_inactive` — they count toward
-"every segment is labeled" (via `all_terminal_ok`) but **do not** appear in
-`active_coverage`'s numerator. This is invariant #5: the export gate cannot
-be gamed by spamming inactive labels.
+`core_regime` is high-confidence-only (the initial training pool). Primary-label
+and structure-tag counts may overlap by design — a segment contributes to its
+primary axis AND to each of its tags.
 
-## Legacy manual_v1 Export Determinism
+## manual_regime_audit_v1 Export Determinism
 
-Built by [src/lib/exporter.ts](src/lib/exporter.ts). Schema matches
-the legacy `manual_v1` schema. The active `manual_regime_audit_v1` schema is
-different and must bump filename suffix, version string, label fields, and
-coverage metrics together.
+Built by [src/lib/exporter.ts](src/lib/exporter.ts). Schema matches the
+`manual_regime_audit_v1` label_set draft in
+`../alchemist/docs/tasks/signal-substrate-v1.md`. `label_set_version` is
+`manual_regime_audit_v1`; the filename suffix is `.manual_regime_audit_v1.json`.
+Per-segment fields: `primary_label`, sorted `structure_tags`,
+`label_confidence`, `audit_mode`, `sampling_reason`, `source`, `pl_slope`,
+`ht_trendline_slope`, `reviewer_id`, `reviewed_at_utc`, `reviewer_note`.
+
+`structure_tags` MUST be canonical-sorted (`STRUCTURE_TAG_ORDER` in
+[segment.ts](src/types/segment.ts), via `sortStructureTags`) before hashing —
+`canonicalJson` sorts object keys but not array elements, so two equivalent tag
+sets only hash identically if the exporter sorts the array.
 
 The export contract:
 
@@ -225,13 +267,16 @@ must re-canonicalize before verifying.
 ## Load-Bearing Labeling Decisions
 
 Sourced from [signal-substrate-v1.md §"Load-bearing labeling decisions"](../alchemist/docs/tasks/signal-substrate-v1.md).
-Current enforcement points in this legacy implementation:
+Current enforcement points:
 
-1. **PL is never a label by default.** The 4-label vocabulary (`uptrend` /
-   `oscillation` / `pullback` / `sideways`) is set by the reviewer, not by
-   PL. Enforced by: `assignLabel` requires an explicit `U/O/P/S` keystroke.
-2. **Direct segment labeling.** The current workflow intentionally skips the
-   old review step: `U/O/P/S` marks the segment as `accepted` and advances.
+1. **PL is never a label by default.** The 6-value `primary_label` vocabulary
+   (`uptrend` / `downtrend` / `oscillation` / `sideways` / `transition` /
+   `ambiguous`) is set by the reviewer, not by PL. Enforced by:
+   `assignPrimaryLabel` requires an explicit `U/D/O/S/T/A` keystroke. The
+   precompute weak-label layer (`system_opinions`) stays distinguishable —
+   it is parsed for `sampling_reason` only, never written as the human label.
+2. **Direct segment labeling.** The workflow intentionally skips the old
+   review step: `U/D/O/S/T/A` marks the segment as `accepted` and advances.
    Corrections are made by navigating back and pressing another label key.
 3. **HT_TRENDLINE second-opinion overlay.** Continuous real-valued
    instantaneous trendline (Hilbert transform), price-scale-comparable to
@@ -241,10 +286,10 @@ Current enforcement points in this legacy implementation:
    `is_range` is checked at fetch time (precompute cross-check) and at
    chart-axis level (`fixLeftEdge` / `fixRightEdge`). Defense-in-depth
    bar-range assertion in [useSessionBootstrap.ts](src/hooks/useSessionBootstrap.ts).
-5. **Legacy active coverage gate.** See "Legacy manual_v1 Coverage Gate"
-   above. This is retained for old `manual_v1` outputs only. The
-   `manual_regime_audit_v1` workflow uses selected audit samples and
-   multi-axis coverage metrics instead of one `active_coverage` numerator.
+5. **Multi-axis audit coverage.** See "Audit Export Gate" above. The export
+   gate is audit completeness (non-empty set, every segment terminal), not a
+   single `active_coverage` numerator. Coverage is reported as multi-axis
+   diagnostics so the gate cannot be gamed by spamming one label.
 6. **Reviewer provenance + version pinning.** Export schema carries
    `labeler_id`, per-segment `reviewer_id`, `reviewed_at_utc`,
    `pl_proposal_version.code_git_sha`, `label_set_version`, and

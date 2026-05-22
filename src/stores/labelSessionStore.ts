@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import type { Manifest, Precompute, WindowEntry } from '../types/manifest'
-import type { Label, Segment } from '../types/segment'
+import type { PrimaryLabel, Segment } from '../types/segment'
+import { coerceSamplingReason } from '../types/segment'
 
 export type SessionStatus = 'idle' | 'loading' | 'ready' | 'error'
 
@@ -50,7 +51,7 @@ interface LabelSessionState {
   nextUnreviewed: () => void
 
   // State machine
-  assignLabel: (label: Label) => void
+  assignPrimaryLabel: (label: PrimaryLabel) => void
   revealCurrent: () => void
   acceptCurrent: () => void
   rejectCurrent: () => void
@@ -72,7 +73,14 @@ function deriveSegments(precompute: Precompute): Segment[] {
     pl_start_price: s.start_price,
     pl_end_price:   s.end_price,
     end_ms_override: null,
-    label:           null,
+    primary_label:   null,
+    structure_tags:  [],
+    // v1 fixed defaults — no confidence/assisted-mode UI yet (阶段 2b).
+    label_confidence: 'high',
+    audit_mode:       'blind',
+    // Sourced from the weak-label layer when the precompute carries one;
+    // pl_segments[idx] and system_opinions[idx] are 1:1 by construction.
+    sampling_reason:  coerceSamplingReason(precompute.system_opinions?.[idx]?.sampling_bucket),
     state:           'unreviewed',
     was_rejected:    false,
     reject_count:    0,
@@ -187,7 +195,7 @@ export const useLabelSession = create<LabelSessionState>((set) => ({
       return s
     }),
 
-  assignLabel: (label) =>
+  assignPrimaryLabel: (label) =>
     set((s) => {
       if (s.edit.active) return s
       const seg = s.segments[s.currentIdx]
@@ -195,7 +203,7 @@ export const useLabelSession = create<LabelSessionState>((set) => ({
       const next = s.segments.slice()
       next[s.currentIdx] = {
         ...seg,
-        label,
+        primary_label: label,
         state: seg.state === 'edited' ? 'edited' : 'accepted',
         reviewed_at_ms: Date.now(),
       }
@@ -236,7 +244,7 @@ export const useLabelSession = create<LabelSessionState>((set) => ({
       next[s.currentIdx] = {
         ...seg,
         state:          'unreviewed',
-        label:          null,
+        primary_label:  null,
         was_rejected:   true,
         reject_count:   seg.reject_count + 1,
         reviewed_at_ms: null,

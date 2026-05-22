@@ -1,17 +1,43 @@
 import type { Precompute, WindowEntry } from '../types/manifest'
-import type { Label, Segment } from '../types/segment'
-import { terminalDisplayState } from '../types/segment'
+import type {
+  AuditMode,
+  LabelConfidence,
+  PrimaryLabel,
+  SamplingReason,
+  Segment,
+  StructureTag,
+} from '../types/segment'
+import {
+  PRIMARY_VOCABULARY,
+  STRUCTURE_TAG_ORDER,
+  sortStructureTags,
+  terminalDisplayState,
+} from '../types/segment'
+import type { CoverageReport } from './coverage'
 import { computeCoverage } from './coverage'
 import { canonicalJson } from './canonicalJson'
 import { sha256Hex } from './sha256'
 
-const LABEL_SET_VERSION = 'manual_v1'
-const VOCABULARY: readonly Label[] = ['uptrend', 'oscillation', 'pullback', 'sideways']
+// manual_regime_audit_v1 — the active audit-sample label-set contract. This is
+// a BREAKING change from legacy `manual_v1`; downstream consumers must
+// hard-reject unknown versions. Schema mirrors signal-substrate-v1.md
+// §"label_set JSON schema (manual_regime_audit_v1 draft)".
+const LABEL_SET_VERSION = 'manual_regime_audit_v1'
+
+const COVERAGE_DOC =
+  'Coverage metrics are multi-axis and count all labeled primary classes/tags ' +
+  'for audit visibility. Primary-label and structure-tag counts may overlap. ' +
+  'v1 cc-v1 emission fit consumes only high-confidence {uptrend, oscillation}; ' +
+  'do not collapse coverage into one active_coverage numerator.'
 
 interface ExportSegment {
   start_ms: number
   end_ms: number
-  label: Label
+  primary_label: PrimaryLabel
+  structure_tags: StructureTag[]
+  label_confidence: LabelConfidence
+  audit_mode: AuditMode
+  sampling_reason: SamplingReason
   source: 'accepted' | 'edited' | 'rejected_then_relabeled'
   pl_slope: number
   ht_trendline_slope: number
@@ -20,23 +46,31 @@ interface ExportSegment {
   reviewer_note: string
 }
 
+interface CoverageBlock {
+  selected_audit_segments: number
+  reviewed_segments: number
+  reviewed_coverage: number
+  core_regime_high_confidence_bars: CoverageReport['core_regime_high_confidence_bars']
+  tradable_structure_bars_all_confidence: CoverageReport['tradable_structure_bars_all_confidence']
+  tradable_structure_bars_high_confidence: CoverageReport['tradable_structure_bars_high_confidence']
+  risk_filter_bars_all_confidence: CoverageReport['risk_filter_bars_all_confidence']
+  risk_filter_bars_high_confidence: CoverageReport['risk_filter_bars_high_confidence']
+  excluded_low_weight_bars: CoverageReport['excluded_low_weight_bars']
+  _doc: string
+}
+
 export interface LabelSet {
   label_set_version: string
   labeler_id: string
   market: string
   timeframe: string
   is_range: { start_ms: number; end_ms: number }
-  vocabulary: readonly Label[]
+  primary_vocabulary: readonly PrimaryLabel[]
+  structure_tag_vocabulary: readonly StructureTag[]
   pl_proposal_version: Precompute['pl_proposal_version']
   ht_trendline_overlay_used: boolean
   segments: ExportSegment[]
-  coverage: {
-    labelable_bars: number
-    active_labeled_bars: number
-    active_labeled_coverage: number
-    active_per_state_counts:   { uptrend: number; oscillation: number }
-    inactive_per_state_counts: { pullback: number; sideways: number }
-  }
+  coverage: CoverageBlock
   content_hash_sha256: string
   created_at_utc: string
 }
@@ -80,32 +114,46 @@ export interface BuildLabelSetInput {
 }
 
 // Constructs the LabelSet object WITH content_hash_sha256 empty. Hash is
-// filled in by signLabelSet so the hashing input excludes itself.
+// filled in by buildAndSignLabelSet so the hashing input excludes itself.
 function buildUnsignedLabelSet(input: BuildLabelSetInput): LabelSet {
   const { window, precompute, segments, barStepMs, reviewerId } = input
 
-  // Only export terminal-state segments (accepted | edited). Caller is
-  // expected to gate on can_export — but be defensive.
+  // can_export (coverage.ts) guarantees every segment is exportable before a
+  // Save is allowed. A non-exportable segment reaching the exporter is a
+  // gating bug — fail loud rather than silently emit a label_set with
+  // dropped segments. This also catches the defensive acceptCurrent path
+  // (overlay_revealed → accepted without a primary_label).
   const exportSegments: ExportSegment[] = []
   for (let i = 0; i < segments.length; i++) {
     const seg = segments[i]
-    if (seg.state !== 'accepted' && seg.state !== 'edited') continue
-    if (!seg.label) continue
-    if (seg.reviewed_at_ms === null) continue
+    const terminal = seg.state === 'accepted' || seg.state === 'edited'
+    if (!terminal || seg.primary_label === null || seg.reviewed_at_ms === null) {
+      throw new Error(
+        `exporter: segment ${i} is not exportable ` +
+          `(state=${seg.state}, primary_label=${seg.primary_label ?? 'null'}, ` +
+          `reviewed_at_ms=${seg.reviewed_at_ms ?? 'null'}). ` +
+          `Caller must gate on can_export.`,
+      )
+    }
     const start = effectiveStart(segments, i)
     const end   = effectiveEnd(seg)
     const display = terminalDisplayState(seg)
     // Display state is 'rejected_then_relabeled' when (accepted && was_rejected).
-    // Edited+was_rejected stays 'edited' per Step 6 design — was_rejected is a
-    // separate signal preserved via the source field's rejected_then_relabeled
-    // mapping only on plain accepted.
+    // Edited+was_rejected stays 'edited' — was_rejected is a separate signal
+    // surfaced via the source field's rejected_then_relabeled mapping only on
+    // plain accepted.
     const source: ExportSegment['source'] =
       display === 'rejected_then_relabeled' ? 'rejected_then_relabeled' :
       seg.state === 'edited'                ? 'edited' : 'accepted'
     exportSegments.push({
       start_ms: start,
       end_ms:   end,
-      label:    seg.label,
+      primary_label:    seg.primary_label,
+      // Canonical-sorted so equivalent tag sets hash identically (Step 6).
+      structure_tags:   sortStructureTags(seg.structure_tags),
+      label_confidence: seg.label_confidence,
+      audit_mode:       seg.audit_mode,
+      sampling_reason:  seg.sampling_reason,
       source,
       pl_slope: seg.pl_slope,
       ht_trendline_slope: htSlopeForRange(precompute, start, end),
@@ -133,22 +181,22 @@ function buildUnsignedLabelSet(input: BuildLabelSetInput): LabelSet {
     market: window.market,
     timeframe: window.interval,
     is_range: { start_ms: window.is_range.start_ms, end_ms: window.is_range.end_ms },
-    vocabulary: VOCABULARY,
+    primary_vocabulary: PRIMARY_VOCABULARY,
+    structure_tag_vocabulary: STRUCTURE_TAG_ORDER,
     pl_proposal_version: precompute.pl_proposal_version,
     ht_trendline_overlay_used: precompute.ht_trendline.length > 0,
     segments: exportSegments,
     coverage: {
-      labelable_bars:      cov.bars_total_labelable,
-      active_labeled_bars: cov.bars_by_label.uptrend + cov.bars_by_label.oscillation,
-      active_labeled_coverage: cov.active_coverage,
-      active_per_state_counts: {
-        uptrend:     cov.bars_by_label.uptrend,
-        oscillation: cov.bars_by_label.oscillation,
-      },
-      inactive_per_state_counts: {
-        pullback:    cov.bars_by_label.pullback,
-        sideways:    cov.bars_by_label.sideways,
-      },
+      selected_audit_segments: cov.selected_audit_segments,
+      reviewed_segments:       cov.reviewed_segments,
+      reviewed_coverage:       cov.reviewed_coverage,
+      core_regime_high_confidence_bars:        cov.core_regime_high_confidence_bars,
+      tradable_structure_bars_all_confidence:  cov.tradable_structure_bars_all_confidence,
+      tradable_structure_bars_high_confidence: cov.tradable_structure_bars_high_confidence,
+      risk_filter_bars_all_confidence:         cov.risk_filter_bars_all_confidence,
+      risk_filter_bars_high_confidence:        cov.risk_filter_bars_high_confidence,
+      excluded_low_weight_bars:                cov.excluded_low_weight_bars,
+      _doc: COVERAGE_DOC,
     },
     content_hash_sha256: '',
     created_at_utc: toIso(createdAtMs),
@@ -158,14 +206,14 @@ function buildUnsignedLabelSet(input: BuildLabelSetInput): LabelSet {
 export async function buildAndSignLabelSet(input: BuildLabelSetInput): Promise<LabelSet> {
   const unsigned = buildUnsignedLabelSet(input)
   // Hash input is canonical-serialized object with content_hash_sha256 set
-  // to the empty string. Mirrors the manifest convention from Step 3 and the
-  // calibrator's verification side.
+  // to the empty string. Mirrors the manifest convention and the calibrator's
+  // verification side.
   const hash = await sha256Hex(canonicalJson(unsigned))
   return { ...unsigned, content_hash_sha256: hash }
 }
 
 export function labelSetFilename(windowId: string): string {
-  return `${windowId}.manual_v1.json`
+  return `${windowId}.manual_regime_audit_v1.json`
 }
 
 export function labelSetPrettyJson(labelSet: LabelSet): string {

@@ -1,9 +1,9 @@
 # Alchemist Labeler
 
-Standalone UI for producing `manual_v1` label_set JSON for `signal-substrate-v1`
-阶段 b. Loads K-line + PL + HT_TRENDLINE, lets the reviewer mark each PL
-segment directly with a terminal label, gates export on coverage floors, and
-hashes the output.
+Standalone UI for producing `manual_regime_audit_v1` audit label_set JSON for
+`signal-substrate-v1` 阶段 b. Loads K-line + PL + HT_TRENDLINE, lets the
+reviewer mark each PL segment directly with a primary regime label, gates
+export on audit completeness, and hashes the output.
 
 For architecture and conventions, see [CLAUDE.md](CLAUDE.md).
 Parent task: [alchemist/docs/tasks/signal-substrate-v1-stage-a-labeler.md](../alchemist/docs/tasks/signal-substrate-v1-stage-a-labeler.md).
@@ -26,7 +26,7 @@ The bundled `public/manifests/test-v1.json` references a pre-baked
 `public/precomputes/btcusdt-15m-2023-02.json` (BTCUSDT 15m, 2023-02-01 →
 2023-03-01, 2689 bars, 36 PL segments). You can label segments end-to-end on
 this fixture; on Save, the dev server writes
-`/data/alchemist-labeler/labels/btcusdt-15m-2023-02.manual_v1.json`.
+`/data/alchemist-labeler/labels/btcusdt-15m-2023-02.manual_regime_audit_v1.json`.
 
 ## Full cookbook — your own IS window (target ≤10 min)
 
@@ -61,7 +61,10 @@ cd ../alchemist
 Bars are read line-by-line from `<bars-dir>/BTCUSDT-15m.csv` (Binance kline
 JSON-array format). The output JSON contains `bars`, `pl_segments`,
 `ht_trendline`, and `pl_proposal_version` (with the pl-export git SHA
-embedded at build time).
+embedded at build time). Adding `--emit-system-opinions` also emits the
+opt-in weak-label layer (`system_opinions` etc.); the labeler reads it only
+to source each segment's `sampling_reason` and refuses the session if that
+layer is not 1:1-aligned with `pl_segments`.
 
 The bundled `15m` fixture uses the provisional `SMA=120,
 turning-point-period=10` profile. Confirmed interval profiles live in
@@ -134,8 +137,8 @@ Any failure surfaces as a "Session refused" page with the specific reason.
 
 ### 5. Label one segment (~30 sec)
 
-- Press `U` (uptrend), `O` (oscillation), `P` (pullback), or `S` (sideways) to mark the current segment as `accepted`; the UI immediately advances to the next segment.
-- Press the same label keys again on an already marked segment to change its label; this updates `reviewed_at_ms`.
+- Press `U` (uptrend), `D` (downtrend), `O` (oscillation), `S` (sideways), `T` (transition), or `A` (ambiguous) to set the current segment's `primary_label` and mark it `accepted`; the UI immediately advances to the next segment.
+- Press the same label keys again on an already marked segment to change its `primary_label`; this updates `reviewed_at_ms`.
 - Press `E`, then `←` / `→`, then `Enter` to nudge the segment's end boundary by N bars; a real boundary move marks the segment as `edited`.
 - Press `←` / `→` to navigate, `N` to jump to the next unreviewed segment.
 - `Space` shows or hides all PL + HT_TRENDLINE overlays at once for chart context.
@@ -144,18 +147,21 @@ Full hotkey reference + label workflow: [CLAUDE.md §"Segment Label Workflow"](C
 
 ### 6. Export (~5 sec)
 
-The right sidebar shows four floors:
+The right sidebar is an audit completeness panel. The export gate is:
 
-| Floor | Threshold |
-|---|---|
-| `uptrend bars` | ≥ 100 |
-| `oscillation bars` | ≥ 100 |
-| `active coverage` | ≥ 30% of labelable bars |
-| `all terminal` | every segment in `accepted` ∪ `edited` |
+```text
+can_export = non-empty audit set AND every segment exportable
+             (terminal + primary_label + reviewed_at_ms)
+```
 
-Once all four pass, the **Save label_set** button activates. Click it →
+There is no per-window active-coverage floor — that legacy `manual_v1` gate is
+removed. Coverage is shown as multi-axis diagnostics (core regime / tradable
+structure / risk filter / excluded), never collapsed into one pass/fail number.
+
+Once the gate passes, the **Save label_set** button activates. Click it →
 the canonical-serialized JSON is hashed, the hash is written back, and the
-file is written as `/data/alchemist-labeler/labels/<window_id>.manual_v1.json`.
+file is written as
+`/data/alchemist-labeler/labels/<window_id>.manual_regime_audit_v1.json`.
 
 Two consecutive Save clicks with no intervening label edits produce
 byte-identical files (deterministic via `reviewed_at_ms` tracking — see
@@ -166,8 +172,8 @@ byte-identical files (deterministic via `reviewed_at_ms` tracking — see
 Copy the saved file into the alchemist tree:
 
 ```bash
-cp /data/alchemist-labeler/labels/btcusdt-15m-2023-02.manual_v1.json \
-   ../alchemist/tests/support/strategytester/manual_v1/
+cp /data/alchemist-labeler/labels/btcusdt-15m-2023-02.manual_regime_audit_v1.json \
+   ../alchemist/tests/support/strategytester/manual_regime_audit_v1/
 ```
 
 (or symlink — the calibrator just reads the JSON.)
@@ -200,15 +206,19 @@ npm run preview   # serve the built dist/ — sanity check pre-release
 | "Session refused: window_id not found" | Typo, or you signed a new manifest but loaded an old one | Check the `?manifest=` param |
 | "file does not exist" for `.json` | Vite SPA fallback caught (Content-Type guard) | Confirm the precompute / manifest file is actually in `public/` |
 | Bars render but chart pans into empty area | `fixLeftEdge` / `fixRightEdge` should prevent this — file a bug if it slips |
-| Export button stays disabled | At least one of the four coverage floors is failing — sidebar shows which |
+| Export button stays disabled | A segment is not yet terminal — every segment must be `accepted`/`edited`; the sidebar shows the unreviewed count |
 
 ## Constraints
 
 - `pl-export` writes `pl_proposal_version.code_git_sha`. The downstream
   calibrator (阶段 b) keys on this; if the PL algorithm changes, regenerate
   precomputes AND re-label affected windows.
-- Inactive labels (`pullback`, `sideways`) are exported as `labeled_inactive`
-  and do NOT contribute to `active_labeled_coverage`. Spamming them does
-  not unblock the export gate (load-bearing invariant #5).
+- Coverage is multi-axis (core regime / tradable structure / risk filter /
+  excluded), never one `active_coverage` number — the export gate is audit
+  completeness, so it cannot be gamed by spamming one label (load-bearing
+  invariant #5).
+- `structure_tags`, `label_confidence`, and `audit_mode` ship as fixed
+  defaults in 阶段 2a — the tag picker, confidence input, and blind/assisted
+  toggle land in 阶段 2b. See [CLAUDE.md §"阶段 2a scope"](CLAUDE.md).
 - Single labeler in v1 (`betachen` hard-coded). Multi-labeler / agreement
   tooling is deferred.

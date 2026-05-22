@@ -23,7 +23,7 @@ function localLabelSetWriter() {
           const filename = body?.filename
           const content = body?.content
 
-          if (typeof filename !== 'string' || !/^[a-zA-Z0-9._-]+\.manual_v1\.json$/.test(filename)) {
+          if (typeof filename !== 'string' || !/^[a-zA-Z0-9._-]+\.manual_regime_audit_v1\.json$/.test(filename)) {
             throw new Error('invalid label_set filename')
           }
           if (typeof content !== 'string') {
@@ -31,8 +31,8 @@ function localLabelSetWriter() {
           }
 
           const parsed = JSON.parse(content)
-          if (parsed?.label_set_version !== 'manual_v1' || typeof parsed?.content_hash_sha256 !== 'string') {
-            throw new Error('content is not a signed manual_v1 label_set')
+          if (parsed?.label_set_version !== 'manual_regime_audit_v1' || typeof parsed?.content_hash_sha256 !== 'string') {
+            throw new Error('content is not a signed manual_regime_audit_v1 label_set')
           }
 
           await mkdir(LABEL_OUTPUT_DIR, { recursive: true })
@@ -56,8 +56,8 @@ function localLabelSetWriter() {
             throw e
           })
           const windowIds = names
-            .filter((name) => name.endsWith('.manual_v1.json'))
-            .map((name) => name.replace(/\.manual_v1\.json$/, ''))
+            .filter((name) => name.endsWith('.manual_regime_audit_v1.json'))
+            .map((name) => name.replace(/\.manual_regime_audit_v1\.json$/, ''))
           sendJson(res, 200, { window_ids: windowIds })
         } catch (e) {
           sendJson(res, 400, { error: e instanceof Error ? e.message : String(e) })

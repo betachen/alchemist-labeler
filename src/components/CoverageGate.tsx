@@ -1,27 +1,40 @@
 import { useMemo, useState } from 'react'
 import { useLabelSession } from '../stores/labelSessionStore'
-import {
-  computeCoverage,
-  MIN_ACTIVE_COVERAGE,
-  MIN_BARS_PER_ACTIVE_STATE,
-} from '../lib/coverage'
+import { computeCoverage } from '../lib/coverage'
 import { buildAndSignLabelSet, saveLabelSetToData } from '../lib/exporter'
 
-interface FloorRowProps {
+// manual_regime_audit_v1 audit completeness panel. Replaces the legacy
+// manual_v1 single 30%-active-coverage gate (see docs/labeling-regime-strategy
+// .md "Export gate decision"). The export gate is now: non-empty audit set
+// with every selected segment terminal. Bar counts are multi-axis diagnostics,
+// NOT a single pass/fail numerator.
+
+interface StatRowProps {
   label: string
-  ok: boolean
-  current: string
-  threshold: string
+  value: string
+  labelTone?: string
+  valueTone?: string
 }
 
-function FloorRow({ label, ok, current, threshold }: FloorRowProps) {
+function StatRow({ label, value, labelTone, valueTone }: StatRowProps) {
   return (
-    <div className="flex items-baseline justify-between py-1 border-b border-[#1e2329] last:border-b-0">
-      <span className="text-xs text-gray-400">{label}</span>
-      <span className="font-mono text-xs">
-        <span className={ok ? 'text-[#1D9E75]' : 'text-[#D85A30]'}>{current}</span>
-        <span className="text-gray-600"> / {threshold}</span>
-      </span>
+    <div className="flex justify-between">
+      <span className={labelTone ?? 'text-gray-500'}>{label}</span>
+      <span className={valueTone ?? 'text-gray-300'}>{value}</span>
+    </div>
+  )
+}
+
+interface SectionProps {
+  title: string
+  children: React.ReactNode
+}
+
+function Section({ title, children }: SectionProps) {
+  return (
+    <div className="px-4 py-3 border-b border-[#2b3139]">
+      <div className="text-xs uppercase tracking-wider text-gray-500 mb-2">{title}</div>
+      <div className="space-y-1 font-mono text-xs">{children}</div>
     </div>
   )
 }
@@ -51,7 +64,8 @@ export function CoverageGate() {
 
   if (status !== 'ready') return null
 
-  const inactiveTotal = report.bars_by_label.pullback + report.bars_by_label.sideways
+  const core = report.core_regime_high_confidence_bars
+  const tags = report.tradable_structure_bars_all_confidence
   const windowIndex = manifest && windowId
     ? manifest.windows.findIndex((w) => w.window_id === windowId)
     : -1
@@ -92,91 +106,70 @@ export function CoverageGate() {
   return (
     <aside className="w-72 shrink-0 flex flex-col bg-[#0f1318] border-l border-[#2b3139] text-sm">
       <div className="px-4 py-3 border-b border-[#2b3139]">
-        <div className="text-xs uppercase tracking-wider text-gray-500 mb-1">Export Gate</div>
+        <div className="text-xs uppercase tracking-wider text-gray-500 mb-1">
+          Audit Export Gate
+        </div>
         <div className={`font-semibold text-sm ${report.can_export ? 'text-[#1D9E75]' : 'text-[#D85A30]'}`}>
-          {report.can_export ? 'all floors passing' : 'blocked'}
+          {report.can_export ? 'audit set complete' : 'blocked'}
         </div>
+        <div className="text-[10px] text-gray-600 mt-1">manual_regime_audit_v1</div>
       </div>
 
-      <div className="px-4 py-3 border-b border-[#2b3139]">
-        <div className="text-xs uppercase tracking-wider text-gray-500 mb-2">Floors</div>
-        <FloorRow
-          label="uptrend bars"
-          ok={report.floors.uptrend_ok}
-          current={String(report.bars_by_label.uptrend)}
-          threshold={`≥ ${MIN_BARS_PER_ACTIVE_STATE}`}
-        />
-        <FloorRow
-          label="oscillation bars"
-          ok={report.floors.oscillation_ok}
-          current={String(report.bars_by_label.oscillation)}
-          threshold={`≥ ${MIN_BARS_PER_ACTIVE_STATE}`}
-        />
-        <FloorRow
-          label="active coverage"
-          ok={report.floors.active_coverage_ok}
-          current={(report.active_coverage * 100).toFixed(1) + '%'}
-          threshold={`≥ ${(MIN_ACTIVE_COVERAGE * 100).toFixed(0)}%`}
-        />
-        <FloorRow
-          label="all terminal"
-          ok={report.floors.all_terminal_ok}
-          current={`${report.segments_terminal}/${report.segments_total}`}
-          threshold={`= ${report.segments_total}`}
-        />
+      <div className="flex-1 overflow-y-auto">
+        <Section title="Audit Completeness">
+          <StatRow
+            label="reviewed / selected"
+            value={`${report.reviewed_segments} / ${report.selected_audit_segments}`}
+            valueTone={report.can_export ? 'text-[#1D9E75]' : 'text-[#D85A30]'}
+          />
+          <StatRow
+            label="reviewed coverage"
+            value={(report.reviewed_coverage * 100).toFixed(1) + '%'}
+          />
+        </Section>
+
+        <Section title="Core Regime (high-conf bars)">
+          <StatRow label="uptrend"     labelTone="text-[#1D9E75]" value={`${core.uptrend} bars`} />
+          <StatRow label="downtrend"   labelTone="text-[#D85A30]" value={`${core.downtrend} bars`} />
+          <StatRow label="oscillation" labelTone="text-[#a78bfa]" value={`${core.oscillation} bars`} />
+          <div className="text-[10px] text-gray-600 pt-1 leading-relaxed">
+            v1 cc-v1 fit consumes only uptrend + oscillation; downtrend counted
+            for the future state-space.
+          </div>
+        </Section>
+
+        <Section title="Tradable Structure (all-conf bars)">
+          <StatRow label="bullish_pullback"  value={`${tags.bullish_pullback} bars`} />
+          <StatRow label="bearish_rebound"   value={`${tags.bearish_rebound} bars`} />
+          <StatRow label="bottom_absorption" value={`${tags.bottom_absorption} bars`} />
+          <StatRow label="top_absorption"    value={`${tags.top_absorption} bars`} />
+          <div className="text-[10px] text-gray-600 pt-1 leading-relaxed">
+            structure-tag picker lands in 阶段 2b — 0 expected for now.
+          </div>
+        </Section>
+
+        <Section title="Risk Filter / Excluded">
+          <StatRow label="transition" labelTone="text-[#f59e0b]"
+            value={`${report.risk_filter_bars_all_confidence.transition} bars`} />
+          <StatRow label="sideways"
+            value={`${report.excluded_low_weight_bars.sideways} bars`} />
+          <StatRow label="ambiguous"
+            value={`${report.excluded_low_weight_bars.ambiguous} bars`} />
+        </Section>
+
+        <Section title="Segments">
+          <StatRow label="terminal"    labelTone="text-[#1D9E75]" value={String(report.segments_terminal)} />
+          <StatRow label="in_progress" labelTone="text-amber-300" value={String(report.segments_in_progress)} />
+          <StatRow
+            label="unreviewed"
+            value={String(report.segments_unreviewed)}
+            valueTone={report.segments_unreviewed === 0 ? 'text-gray-500' : 'text-[#D85A30]'}
+          />
+          <StatRow label="total labelable" value={`${report.bars_total_labelable} bars`} />
+        </Section>
       </div>
 
-      <div className="px-4 py-3 border-b border-[#2b3139]">
-        <div className="text-xs uppercase tracking-wider text-gray-500 mb-2">Tally</div>
-        <div className="space-y-1 font-mono text-xs">
-          <div className="flex justify-between">
-            <span className="text-[#1D9E75]">uptrend</span>
-            <span className="text-gray-300">{report.bars_by_label.uptrend} bars</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-[#a78bfa]">oscillation</span>
-            <span className="text-gray-300">{report.bars_by_label.oscillation} bars</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-[#f59e0b]">pullback</span>
-            <span className="text-gray-300">{report.bars_by_label.pullback} bars</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-gray-500">sideways</span>
-            <span className="text-gray-500">{report.bars_by_label.sideways} bars</span>
-          </div>
-          <div className="flex justify-between pt-1 mt-1 border-t border-[#1e2329]">
-            <span className="text-gray-500">labeled_inactive</span>
-            <span className="text-gray-500">{inactiveTotal} bars (excl. coverage)</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-gray-500">total labelable</span>
-            <span className="text-gray-300">{report.bars_total_labelable} bars</span>
-          </div>
-        </div>
-      </div>
-
-      <div className="px-4 py-3 border-b border-[#2b3139]">
-        <div className="text-xs uppercase tracking-wider text-gray-500 mb-2">Segments</div>
-        <div className="space-y-1 font-mono text-xs">
-          <div className="flex justify-between">
-            <span className="text-[#1D9E75]">terminal</span>
-            <span className="text-gray-300">{report.segments_terminal}</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-amber-300">in_progress</span>
-            <span className="text-gray-300">{report.segments_in_progress}</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-gray-500">unreviewed</span>
-            <span className={report.segments_unreviewed === 0 ? 'text-gray-500' : 'text-[#D85A30]'}>
-              {report.segments_unreviewed}
-            </span>
-          </div>
-        </div>
-      </div>
-
-      <div className="mt-auto px-4 py-3">
+      <div className="px-4 py-3 border-t border-[#2b3139]">
         <div className="grid grid-cols-2 gap-2 mb-3">
           <button
             type="button"
@@ -221,7 +214,8 @@ export function CoverageGate() {
         </button>
         {!report.can_export && exportState.kind === 'idle' && (
           <p className="mt-2 text-[10px] text-gray-600 leading-relaxed">
-            All four floors must pass. Hover or scroll to see which is failing.
+            {report.selected_audit_segments - report.reviewed_segments} segment(s)
+            not yet exportable. Every segment must be terminal with a primary label.
           </p>
         )}
         {exportState.kind === 'done' && (

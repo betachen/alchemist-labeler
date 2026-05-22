@@ -11,7 +11,7 @@ import type {
 import { useKlines } from '../../hooks/useKlines'
 import { useLabelSession } from '../../stores/labelSessionStore'
 import type { Candle } from '../../types/market'
-import type { Label } from '../../types/segment'
+import type { PrimaryLabel } from '../../types/segment'
 import type { Segment } from '../../types/segment'
 
 const SPLIT_MIN = 0.35
@@ -19,11 +19,13 @@ const SPLIT_MAX = 0.88
 const DIVIDER_HIT_PX = 8   // invisible hit area height
 const GAP = 0.015           // gap between kline bottom and volume top
 
-const LABEL_BADGE_COLOR: Record<Label, string> = {
+const LABEL_BADGE_COLOR: Record<PrimaryLabel, string> = {
   uptrend:     '#1D9E75',
+  downtrend:   '#D85A30',
   oscillation: '#a78bfa',
-  pullback:    '#f59e0b',
   sideways:    '#94a3b8',
+  transition:  '#f59e0b',
+  ambiguous:   '#6b7280',
 }
 
 // Overlay-visible states (per-segment reveal advances at R; subsequent terminal
@@ -41,7 +43,7 @@ interface EffectiveBoundary {
 
 interface LabelBadge {
   key: string
-  label: Label
+  label: PrimaryLabel
   left: number
   top: number
 }
@@ -113,7 +115,7 @@ export function KlineChart() {
     for (let i = 0; i < segments.length; i++) {
       const seg = segments[i]
       const b = boundaries[i]
-      if (!seg.label || !b) continue
+      if (!seg.primary_label || !b) continue
 
       const startX = chart.timeScale().timeToCoordinate(Math.floor(b.start_ms / 1000) as UTCTimestamp)
       const endX = chart.timeScale().timeToCoordinate(Math.floor(b.end_ms / 1000) as UTCTimestamp)
@@ -124,8 +126,8 @@ export function KlineChart() {
       const top = (startY + endY) / 2
 
       next.push({
-        key: `${seg.idx}-${seg.label}`,
-        label: seg.label,
+        key: `${seg.idx}-${seg.primary_label}`,
+        label: seg.primary_label,
         left,
         top,
       })

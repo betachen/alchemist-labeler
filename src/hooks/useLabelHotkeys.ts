@@ -1,12 +1,16 @@
 import { useEffect } from 'react'
 import { useLabelSession } from '../stores/labelSessionStore'
-import type { Label } from '../types/segment'
+import type { PrimaryLabel } from '../types/segment'
 
-const LABEL_KEY: Record<string, Label> = {
+// manual_regime_audit_v1 primary-label hotkeys. `P` (legacy pullback) is freed
+// — pullback is now a structure tag, not a primary label.
+const LABEL_KEY: Record<string, PrimaryLabel> = {
   KeyU: 'uptrend',
+  KeyD: 'downtrend',
   KeyO: 'oscillation',
-  KeyP: 'pullback',
   KeyS: 'sideways',
+  KeyT: 'transition',
+  KeyA: 'ambiguous',
 }
 
 // Keys we always preventDefault to keep the chart pane from scrolling.
@@ -59,9 +63,9 @@ export function useLabelHotkeys() {
       if (code === 'ArrowRight') { e.preventDefault(); s.nextSegment(); return }
       if (code === 'KeyN')       { s.nextUnreviewed(); return }
 
-      // Labels
+      // Primary labels
       const lbl = LABEL_KEY[code]
-      if (lbl) { s.assignLabel(lbl); return }
+      if (lbl) { s.assignPrimaryLabel(lbl); return }
 
       if (code === 'KeyE') { s.enterEdit(); return }
     }

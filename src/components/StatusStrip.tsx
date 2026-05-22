@@ -1,6 +1,6 @@
 import { useLabelSession } from '../stores/labelSessionStore'
 import { terminalDisplayState } from '../types/segment'
-import type { Label, SegmentState } from '../types/segment'
+import type { PrimaryLabel, SegmentState } from '../types/segment'
 
 function fmtUtc(ms: number): string {
   const d = new Date(ms)
@@ -12,11 +12,13 @@ function fmtUtc(ms: number): string {
   return `${yyyy}-${mm}-${dd} ${hh}:${mi}`
 }
 
-const LABEL_COLOR: Record<Label, string> = {
+const LABEL_COLOR: Record<PrimaryLabel, string> = {
   uptrend:     'text-[#1D9E75]',
+  downtrend:   'text-[#D85A30]',
   oscillation: 'text-[#a78bfa]',
-  pullback:    'text-[#f59e0b]',
   sideways:    'text-[#94a3b8]',
+  transition:  'text-[#f59e0b]',
+  ambiguous:   'text-gray-500',
 }
 
 const STATE_COLOR: Record<SegmentState | 'rejected_then_relabeled', string> = {
@@ -29,11 +31,11 @@ const STATE_COLOR: Record<SegmentState | 'rejected_then_relabeled', string> = {
 }
 
 const LEGEND: { key: string; label: string }[] = [
-  { key: 'U/O/P/S', label: 'label' },
-  { key: 'E',       label: 'edit' },
-  { key: '←/→',    label: 'nav' },
-  { key: 'N',       label: 'next unreviewed' },
-  { key: 'Space',   label: 'peek all' },
+  { key: 'U/D/O/S/T/A', label: 'primary label' },
+  { key: 'E',           label: 'edit' },
+  { key: '←/→',        label: 'nav' },
+  { key: 'N',           label: 'next unreviewed' },
+  { key: 'Space',       label: 'peek all' },
 ]
 
 const EDIT_LEGEND: { key: string; label: string }[] = [
@@ -46,13 +48,13 @@ const EDIT_LEGEND: { key: string; label: string }[] = [
 function workflowHint(state: SegmentState): string {
   switch (state) {
     case 'unreviewed':
-      return 'current: press U/O/P/S to mark'
+      return 'current: press U/D/O/S/T/A to mark'
     case 'human_prelabel':
     case 'overlay_revealed':
-      return 'current: press U/O/P/S to mark'
+      return 'current: press U/D/O/S/T/A to mark'
     case 'accepted':
     case 'edited':
-      return 'current: marked; press U/O/P/S to change'
+      return 'current: marked; press U/D/O/S/T/A to change'
   }
 }
 
@@ -82,7 +84,7 @@ export function StatusStrip() {
   const labeled  = segments.filter((s) => s.state !== 'unreviewed').length
   const accepted = segments.filter((s) => s.state === 'accepted' || s.state === 'edited').length
   const displayState = terminalDisplayState(seg)
-  const labelText = seg.label ?? '—'
+  const labelText = seg.primary_label ?? '—'
   const legend = editActive ? EDIT_LEGEND : LEGEND
 
   return (
@@ -109,8 +111,8 @@ export function StatusStrip() {
           </span>
         )}
 
-        <span className="text-gray-500">label:</span>
-        <span className={`font-semibold ${seg.label ? LABEL_COLOR[seg.label] : 'text-gray-600'}`}>
+        <span className="text-gray-500">primary:</span>
+        <span className={`font-semibold ${seg.primary_label ? LABEL_COLOR[seg.primary_label] : 'text-gray-600'}`}>
           {labelText}
         </span>
 
