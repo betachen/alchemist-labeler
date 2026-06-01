@@ -32,11 +32,13 @@ function Refusal({ message }: { message: string }) {
 function App() {
   useSessionBootstrap()
   useLabelHotkeys()
-  const status         = useLabelSession((s) => s.status)
-  const errorMessage   = useLabelSession((s) => s.errorMessage)
-  const manifest       = useLabelSession((s) => s.manifest)
-  const setSavedWindowIds = useLabelSession((s) => s.setSavedWindowIds)
-  const overlayVisible = useLabelSession((s) => s.overlayVisible)
+  const status                 = useLabelSession((s) => s.status)
+  const errorMessage           = useLabelSession((s) => s.errorMessage)
+  const manifest               = useLabelSession((s) => s.manifest)
+  const setSavedWindowIds      = useLabelSession((s) => s.setSavedWindowIds)
+  const overlayVisible         = useLabelSession((s) => s.overlayVisible)
+  const sessionAuditMode       = useLabelSession((s) => s.sessionAuditMode)
+  const toggleSessionAuditMode = useLabelSession((s) => s.toggleSessionAuditMode)
 
   useEffect(() => {
     if (status !== 'ready' || !manifest) return
@@ -66,12 +68,30 @@ function App() {
           <span className="text-xs text-[#D85A30]">refused</span>
         )}
         {status === 'ready' && (
-          <span className="ml-auto text-xs text-gray-500">
-            peek:{' '}
-            <span className={overlayVisible ? 'text-[#ff4fd8] font-medium' : 'text-[#ff4fd8]/60'}>
-              {overlayVisible ? 'on' : 'off'}
-            </span>{' '}
-            <span className="opacity-50">(space)</span>
+          <span className="ml-auto flex items-center gap-4 text-xs text-gray-500">
+            <span>
+              mode:{' '}
+              <button
+                type="button"
+                onClick={toggleSessionAuditMode}
+                className={
+                  'font-medium transition-colors ' +
+                  (sessionAuditMode === 'assisted'
+                    ? 'text-amber-400 hover:text-amber-300'
+                    : 'text-gray-400/60 hover:text-gray-400')
+                }
+              >
+                {sessionAuditMode}
+              </button>{' '}
+              <span className="opacity-50">(M)</span>
+            </span>
+            <span>
+              peek:{' '}
+              <span className={overlayVisible ? 'text-[#ff4fd8] font-medium' : 'text-[#ff4fd8]/60'}>
+                {overlayVisible ? 'on' : 'off'}
+              </span>{' '}
+              <span className="opacity-50">(space)</span>
+            </span>
           </span>
         )}
       </header>

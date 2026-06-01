@@ -88,12 +88,16 @@ export interface SegmentFeature {
 export interface SystemOpinion {
   start_ms: number
   end_ms: number
-  candidate_primary_label: string
-  candidate_structure_tags: string[]
-  confidence: number
-  rule_id: string
-  evidence_metrics: Record<string, number>
   sampling_bucket: string
+  // Slope-derived weak label emitted by pl-export --emit-system-opinions.
+  // Only uptrend/downtrend are derivable from PL slope; richer fields below
+  // are reserved for future assisted-mode extensions (阶段 2b).
+  suggested_label?: string
+  candidate_primary_label?: string
+  candidate_structure_tags?: string[]
+  confidence?: number
+  rule_id?: string
+  evidence_metrics?: Record<string, number>
 }
 
 export interface Precompute {

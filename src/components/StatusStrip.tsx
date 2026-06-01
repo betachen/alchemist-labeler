@@ -1,6 +1,6 @@
 import { useLabelSession } from '../stores/labelSessionStore'
-import { terminalDisplayState } from '../types/segment'
-import type { PrimaryLabel, SegmentState } from '../types/segment'
+import { STRUCTURE_TAG_ORDER, terminalDisplayState } from '../types/segment'
+import type { LabelConfidence, PrimaryLabel, SegmentState } from '../types/segment'
 
 function fmtUtc(ms: number): string {
   const d = new Date(ms)
@@ -36,6 +36,9 @@ const LEGEND: { key: string; label: string }[] = [
   { key: '←/→',        label: 'nav' },
   { key: 'N',           label: 'next unreviewed' },
   { key: 'Space',       label: 'peek all' },
+  { key: '1-4',         label: 'tags' },
+  { key: 'C',           label: 'confidence' },
+  { key: 'M',           label: 'mode' },
 ]
 
 const EDIT_LEGEND: { key: string; label: string }[] = [
@@ -59,14 +62,17 @@ function workflowHint(state: SegmentState): string {
 }
 
 export function StatusStrip() {
-  const status         = useLabelSession((s) => s.status)
-  const segments       = useLabelSession((s) => s.segments)
-  const currentIdx     = useLabelSession((s) => s.currentIdx)
-  const editActive     = useLabelSession((s) => s.edit.active)
-  const editPendingEnd = useLabelSession((s) => s.edit.pendingEndMs)
-  const reviewerId     = useLabelSession((s) => s.reviewerId)
-  const precompute     = useLabelSession((s) => s.precompute)
-  const barStepMs      = useLabelSession((s) => s.barStepMs)
+  const status              = useLabelSession((s) => s.status)
+  const segments            = useLabelSession((s) => s.segments)
+  const currentIdx          = useLabelSession((s) => s.currentIdx)
+  const editActive          = useLabelSession((s) => s.edit.active)
+  const editPendingEnd      = useLabelSession((s) => s.edit.pendingEndMs)
+  const reviewerId          = useLabelSession((s) => s.reviewerId)
+  const precompute          = useLabelSession((s) => s.precompute)
+  const barStepMs           = useLabelSession((s) => s.barStepMs)
+  const sessionAuditMode    = useLabelSession((s) => s.sessionAuditMode)
+  const setLabelConfidence  = useLabelSession((s) => s.setLabelConfidence)
+  const toggleStructureTag  = useLabelSession((s) => s.toggleStructureTag)
 
   if (status !== 'ready' || segments.length === 0) return null
 
@@ -86,6 +92,7 @@ export function StatusStrip() {
   const displayState = terminalDisplayState(seg)
   const labelText = seg.primary_label ?? '—'
   const legend = editActive ? EDIT_LEGEND : LEGEND
+  const suggestedLabel = seg.suggested_label
 
   return (
     <div className="flex flex-col bg-[#0f1318] border-b border-[#2b3139] shrink-0">
@@ -93,7 +100,7 @@ export function StatusStrip() {
       <div className="flex items-center px-4 py-2 text-xs gap-4 min-h-[36px]">
         <span className="font-mono text-gray-300">
           Seg <span className="text-white font-semibold">{currentIdx}</span>
-          <span className="text-gray-600"> / {n - 1}</span>
+          <span className="text-gray-600"> / {n}</span>
         </span>
 
         <span className="font-mono text-gray-400">
@@ -116,6 +123,12 @@ export function StatusStrip() {
           {labelText}
         </span>
 
+        {suggestedLabel && sessionAuditMode === 'assisted' && (
+          <span className="font-mono text-[11px] text-amber-400/80">
+            sys: <span className="text-amber-300/80">{suggestedLabel}</span>
+          </span>
+        )}
+
         <span className="text-gray-500">state:</span>
         <span className={`font-semibold ${STATE_COLOR[displayState]}`}>
           {displayState}
@@ -135,7 +148,45 @@ export function StatusStrip() {
         </span>
       </div>
 
-      {/* Row 2 — hotkey legend */}
+      {/* Row 2 — structure tags + confidence (only when segment is labeled) */}
+      {seg.primary_label !== null && !editActive && (
+        <div className="flex items-center px-4 py-1 text-[10px] gap-2 flex-wrap border-t border-[#1e2329]">
+          <span className="text-gray-600">tags:</span>
+          {STRUCTURE_TAG_ORDER.map((tag, i) => (
+            <button
+              key={tag}
+              type="button"
+              onClick={() => toggleStructureTag(tag)}
+              className={
+                'px-1.5 py-0.5 rounded font-mono border transition-colors ' +
+                (seg.structure_tags.includes(tag)
+                  ? 'bg-[#a78bfa]/20 border-[#a78bfa]/60 text-[#a78bfa]'
+                  : 'bg-[#1e2329] border-[#2b3139] text-gray-500 hover:border-gray-500')
+              }
+            >
+              {i + 1} {tag}
+            </button>
+          ))}
+          <span className="text-gray-600 ml-2">conf:</span>
+          {(['high', 'medium', 'low'] as LabelConfidence[]).map((c) => (
+            <button
+              key={c}
+              type="button"
+              onClick={() => setLabelConfidence(c)}
+              className={
+                'px-1.5 py-0.5 rounded font-mono border transition-colors ' +
+                (seg.label_confidence === c
+                  ? 'bg-[#f59e0b]/20 border-[#f59e0b]/60 text-[#f59e0b]'
+                  : 'bg-[#1e2329] border-[#2b3139] text-gray-500 hover:border-gray-500')
+              }
+            >
+              {c}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Row 3 — hotkey legend */}
       <div className="flex items-center px-4 pb-1.5 text-[10px] text-gray-600 gap-3 flex-wrap">
         <span className="font-mono text-amber-300/80 whitespace-nowrap">
           {editActive ? 'current: click target candle, then Enter' : workflowHint(seg.state)}

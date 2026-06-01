@@ -1,9 +1,9 @@
 import { useEffect } from 'react'
 import { useLabelSession } from '../stores/labelSessionStore'
-import type { PrimaryLabel } from '../types/segment'
+import type { PrimaryLabel, StructureTag } from '../types/segment'
+import { STRUCTURE_TAG_ORDER } from '../types/segment'
 
-// manual_regime_audit_v1 primary-label hotkeys. `P` (legacy pullback) is freed
-// — pullback is now a structure tag, not a primary label.
+// manual_regime_audit_v1 primary-label hotkeys.
 const LABEL_KEY: Record<string, PrimaryLabel> = {
   KeyU: 'uptrend',
   KeyD: 'downtrend',
@@ -11,6 +11,14 @@ const LABEL_KEY: Record<string, PrimaryLabel> = {
   KeyS: 'sideways',
   KeyT: 'transition',
   KeyA: 'ambiguous',
+}
+
+// 阶段 2b: structure-tag hotkeys. Digit1–4 map to STRUCTURE_TAG_ORDER indices.
+const TAG_KEY: Record<string, StructureTag> = {
+  Digit1: STRUCTURE_TAG_ORDER[0],
+  Digit2: STRUCTURE_TAG_ORDER[1],
+  Digit3: STRUCTURE_TAG_ORDER[2],
+  Digit4: STRUCTURE_TAG_ORDER[3],
 }
 
 // Keys we always preventDefault to keep the chart pane from scrolling.
@@ -68,6 +76,12 @@ export function useLabelHotkeys() {
       if (lbl) { s.assignPrimaryLabel(lbl); return }
 
       if (code === 'KeyE') { s.enterEdit(); return }
+
+      // 阶段 2b: structure tags (1–4), confidence cycle (C), audit mode toggle (M)
+      const structTag = TAG_KEY[code] as StructureTag | undefined
+      if (structTag) { s.toggleStructureTag(structTag); return }
+      if (code === 'KeyC') { s.cycleConfidence(); return }
+      if (code === 'KeyM') { s.toggleSessionAuditMode(); return }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)

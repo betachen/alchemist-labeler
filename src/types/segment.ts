@@ -21,7 +21,7 @@ export type StructureTag =
 export type LabelConfidence = 'high' | 'medium' | 'low'
 
 // Per segment: blind hides the system candidate label (taxonomy QA); assisted
-// shows it to reduce labor. v1 has no assisted UI, so every segment is `blind`.
+// shows it to reduce reviewer labor. Session-level toggle added in 阶段 2b.
 export type AuditMode = 'blind' | 'assisted'
 
 // Why the segment was selected for audit. Sourced from the weak-label rules'
@@ -96,13 +96,15 @@ export interface Segment {
   // Layer 2: optional analysis tags. Stored in click order; exporter sorts to
   // STRUCTURE_TAG_ORDER before hashing.
   structure_tags: StructureTag[]
-  // v1: fixed `high` (no confidence picker yet — see 阶段 2b).
   label_confidence: LabelConfidence
-  // v1: fixed `blind` (no assisted-mode UI yet — see 阶段 2b).
   audit_mode: AuditMode
   // v1: sourced from the precompute's weak-label sampling bucket, or
   // `random_baseline_samples` when absent.
   sampling_reason: SamplingReason
+  // Weak-label suggestion from system_opinions (pl-export --emit-system-opinions).
+  // null when the precompute was generated without weak labels.
+  // Displayed in the StatusStrip and chart only when sessionAuditMode === 'assisted'.
+  suggested_label: string | null
   state: SegmentState
   was_rejected: boolean
   reject_count: number

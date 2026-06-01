@@ -28,6 +28,24 @@ const LABEL_BADGE_COLOR: Record<PrimaryLabel, string> = {
   ambiguous:   '#6b7280',
 }
 
+// Dimmed palette for weak-label suggestions (system_opinions)
+const WEAK_LABEL_COLOR: Record<string, string> = {
+  uptrend:     '#1D9E75',
+  downtrend:   '#D85A30',
+  oscillation: '#a78bfa',
+  sideways:    '#94a3b8',
+  transition:  '#f59e0b',
+  ambiguous:   '#6b7280',
+  unlabeled:   '#9ca3af',
+}
+
+interface WeakLabelBadge {
+  key: string
+  label: string
+  left: number
+  top: number
+}
+
 // Overlay-visible states (per-segment reveal advances at R; subsequent terminal
 // states keep it visible).
 const REVEALED_STATES: ReadonlySet<Segment['state']> = new Set([
@@ -80,7 +98,8 @@ export function KlineChart() {
 
   // `split` = fraction of chart height given to the kline pane
   const [split, setSplit] = useState(0.72)
-  const [labelBadges, setLabelBadges] = useState<LabelBadge[]>([])
+  const [labelBadges, setLabelBadges]           = useState<LabelBadge[]>([])
+  const [weakLabelBadges, setWeakLabelBadges]   = useState<WeakLabelBadge[]>([])
   const splitRef = useRef(split)
   splitRef.current = split
 
@@ -92,9 +111,10 @@ export function KlineChart() {
   const klinesRef = useRef<Candle[]>(klines)
   klinesRef.current = klines
 
-  const precompute       = useLabelSession((s) => s.precompute)
-  const overlayVisible   = useLabelSession((s) => s.overlayVisible)
-  const segments         = useLabelSession((s) => s.segments)
+  const precompute        = useLabelSession((s) => s.precompute)
+  const overlayVisible    = useLabelSession((s) => s.overlayVisible)
+  const segments          = useLabelSession((s) => s.segments)
+  const sessionAuditMode  = useLabelSession((s) => s.sessionAuditMode)
   const currentIdx       = useLabelSession((s) => s.currentIdx)
   const editActive       = useLabelSession((s) => s.edit.active)
   const editSegIdx       = useLabelSession((s) => s.edit.segIdx)
@@ -112,28 +132,29 @@ export function KlineChart() {
     if (!chart || !candle) return
 
     const next: LabelBadge[] = []
+    const weakNext: WeakLabelBadge[] = []
     for (let i = 0; i < segments.length; i++) {
       const seg = segments[i]
       const b = boundaries[i]
-      if (!seg.primary_label || !b) continue
+      if (!b) continue
 
       const startX = chart.timeScale().timeToCoordinate(Math.floor(b.start_ms / 1000) as UTCTimestamp)
-      const endX = chart.timeScale().timeToCoordinate(Math.floor(b.end_ms / 1000) as UTCTimestamp)
+      const endX   = chart.timeScale().timeToCoordinate(Math.floor(b.end_ms   / 1000) as UTCTimestamp)
       const startY = candle.priceToCoordinate(seg.pl_start_price)
-      const endY = candle.priceToCoordinate(seg.pl_end_price)
+      const endY   = candle.priceToCoordinate(seg.pl_end_price)
       if (startX === null || endX === null || startY === null || endY === null) continue
       const left = (startX + endX) / 2
-      const top = (startY + endY) / 2
+      const top  = (startY + endY) / 2
 
-      next.push({
-        key: `${seg.idx}-${seg.primary_label}`,
-        label: seg.primary_label,
-        left,
-        top,
-      })
+      if (seg.primary_label) {
+        next.push({ key: `${seg.idx}-${seg.primary_label}`, label: seg.primary_label, left, top })
+      } else if (seg.suggested_label && sessionAuditMode === 'assisted') {
+        weakNext.push({ key: `weak-${seg.idx}-${seg.suggested_label}`, label: seg.suggested_label, left, top })
+      }
     }
     setLabelBadges(next)
-  }, [boundaries, segments])
+    setWeakLabelBadges(weakNext)
+  }, [boundaries, segments, sessionAuditMode])
 
   // ── Init chart once ────────────────────────────────────────────────────────
   useEffect(() => {
@@ -359,21 +380,37 @@ export function KlineChart() {
     }
   }, [segments, overlayVisible])
 
-  // ── Current-segment markers (boundary arrows on the candle series) ─────
+  // ── Segment boundary markers: dots for all segments + arrows for current ──
   useEffect(() => {
     const candle = candleRef.current
-    if (!candle) return
-    const b = boundaries[currentIdx]
-    if (!b) { candle.setMarkers([]); return }
+    if (!candle || boundaries.length === 0) return
+
+    const markers: SeriesMarker<UTCTimestamp>[] = []
     const endColor = editActive ? '#ef4444' : '#fbbf24'
-    const startTime = Math.floor(b.start_ms / 1000) as UTCTimestamp
-    const endTime   = Math.floor(b.end_ms   / 1000) as UTCTimestamp
-    const markers: SeriesMarker<UTCTimestamp>[] = [
-      { time: startTime, position: 'aboveBar', color: '#fbbf24', shape: 'arrowDown', text: `[${currentIdx}` },
-      { time: endTime,   position: 'aboveBar', color: endColor,  shape: 'arrowDown', text: editActive ? `${currentIdx}*` : `${currentIdx}]` },
-    ]
+
+    for (let i = 0; i < segments.length; i++) {
+      const b = boundaries[i]
+      if (!b) continue
+      const startTime = Math.floor(b.start_ms / 1000) as UTCTimestamp
+      const endTime   = Math.floor(b.end_ms   / 1000) as UTCTimestamp
+
+      if (i === currentIdx) {
+        // Current segment: prominent arrows with bracket notation
+        markers.push(
+          { time: startTime, position: 'aboveBar', color: '#fbbf24', shape: 'arrowDown', text: `[${i}` },
+          { time: endTime,   position: 'aboveBar', color: endColor,  shape: 'arrowDown', text: editActive ? `${i}*` : `${i}]` },
+        )
+      } else {
+        // Other segments: small circle at start boundary only (end = next start)
+        markers.push(
+          { time: startTime, position: 'aboveBar', color: '#374151', shape: 'circle', text: '' },
+        )
+      }
+    }
+    // lightweight-charts requires markers sorted by time
+    markers.sort((a, b) => (a.time as number) - (b.time as number))
     candle.setMarkers(markers)
-  }, [currentIdx, boundaries, editActive])
+  }, [currentIdx, boundaries, segments, editActive])
 
   useEffect(() => {
     const chart = chartRef.current
@@ -458,6 +495,20 @@ export function KlineChart() {
           }}
         >
           {badge.label}
+        </div>
+      ))}
+      {weakLabelBadges.map((badge) => (
+        <div
+          key={badge.key}
+          className="absolute z-20 pointer-events-none rounded bg-[#0b0e11]/90 px-1.5 py-0.5 text-[11px] font-semibold leading-none border border-dashed border-[#6b7280]"
+          style={{
+            left: badge.left,
+            top: badge.top,
+            color: WEAK_LABEL_COLOR[badge.label] ?? '#9ca3af',
+            transform: 'translate(-50%, -140%)',
+          }}
+        >
+          pl:{badge.label}
         </div>
       ))}
     </div>

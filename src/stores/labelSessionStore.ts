@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import type { Manifest, Precompute, WindowEntry } from '../types/manifest'
-import type { PrimaryLabel, Segment } from '../types/segment'
+import type { AuditMode, LabelConfidence, PrimaryLabel, Segment, StructureTag } from '../types/segment'
 import { coerceSamplingReason } from '../types/segment'
 
 export type SessionStatus = 'idle' | 'loading' | 'ready' | 'error'
@@ -50,6 +50,15 @@ interface LabelSessionState {
   prevSegment: () => void
   nextUnreviewed: () => void
 
+  // Audit mode (session-level; captured per-segment at label time)
+  sessionAuditMode: AuditMode
+  toggleSessionAuditMode: () => void
+
+  // Per-segment label metadata
+  setLabelConfidence: (confidence: LabelConfidence) => void
+  cycleConfidence: () => void
+  toggleStructureTag: (tag: StructureTag) => void
+
   // State machine
   assignPrimaryLabel: (label: PrimaryLabel) => void
   revealCurrent: () => void
@@ -75,12 +84,16 @@ function deriveSegments(precompute: Precompute): Segment[] {
     end_ms_override: null,
     primary_label:   null,
     structure_tags:  [],
-    // v1 fixed defaults — no confidence/assisted-mode UI yet (阶段 2b).
     label_confidence: 'high',
     audit_mode:       'blind',
     // Sourced from the weak-label layer when the precompute carries one;
     // pl_segments[idx] and system_opinions[idx] are 1:1 by construction.
+    // candidate_primary_label is the canonical field (alchemist-weaklabel ≥ V0.2);
+    // suggested_label is the legacy fallback for older precomputes.
     sampling_reason:  coerceSamplingReason(precompute.system_opinions?.[idx]?.sampling_bucket),
+    suggested_label:  precompute.system_opinions?.[idx]?.candidate_primary_label
+                      ?? precompute.system_opinions?.[idx]?.suggested_label
+                      ?? null,
     state:           'unreviewed',
     was_rejected:    false,
     reject_count:    0,
@@ -118,6 +131,7 @@ export const useLabelSession = create<LabelSessionState>((set) => ({
   precompute: null,
 
   overlayVisible: false,
+  sessionAuditMode: 'blind',
 
   segments:    [],
   currentIdx:  0,
@@ -165,6 +179,41 @@ export const useLabelSession = create<LabelSessionState>((set) => ({
       ? s
       : { savedWindowIds: [...s.savedWindowIds, windowId] }),
   toggleOverlay: () => set((s) => ({ overlayVisible: !s.overlayVisible })),
+  toggleSessionAuditMode: () =>
+    set((s) => ({ sessionAuditMode: s.sessionAuditMode === 'blind' ? 'assisted' : 'blind' })),
+
+  setLabelConfidence: (confidence) =>
+    set((s) => {
+      if (s.edit.active) return s
+      const seg = s.segments[s.currentIdx]
+      if (!seg || (seg.state !== 'accepted' && seg.state !== 'edited')) return s
+      const next = s.segments.slice()
+      next[s.currentIdx] = { ...seg, label_confidence: confidence }
+      return { segments: next }
+    }),
+  cycleConfidence: () =>
+    set((s) => {
+      if (s.edit.active) return s
+      const seg = s.segments[s.currentIdx]
+      if (!seg || (seg.state !== 'accepted' && seg.state !== 'edited')) return s
+      const ORDER: LabelConfidence[] = ['high', 'medium', 'low']
+      const nxt = ORDER[(ORDER.indexOf(seg.label_confidence) + 1) % ORDER.length]
+      const next = s.segments.slice()
+      next[s.currentIdx] = { ...seg, label_confidence: nxt }
+      return { segments: next }
+    }),
+  toggleStructureTag: (tag) =>
+    set((s) => {
+      if (s.edit.active) return s
+      const seg = s.segments[s.currentIdx]
+      if (!seg || (seg.state !== 'accepted' && seg.state !== 'edited')) return s
+      const tags = seg.structure_tags.includes(tag)
+        ? seg.structure_tags.filter((t) => t !== tag)
+        : [...seg.structure_tags, tag]
+      const next = s.segments.slice()
+      next[s.currentIdx] = { ...seg, structure_tags: tags }
+      return { segments: next }
+    }),
 
   setCurrentIdx: (idx) =>
     set((s) => {
@@ -204,6 +253,7 @@ export const useLabelSession = create<LabelSessionState>((set) => ({
       next[s.currentIdx] = {
         ...seg,
         primary_label: label,
+        audit_mode: s.sessionAuditMode,
         state: seg.state === 'edited' ? 'edited' : 'accepted',
         reviewed_at_ms: Date.now(),
       }
