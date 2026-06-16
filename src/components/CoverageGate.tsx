@@ -83,7 +83,7 @@ export function CoverageGate() {
       const signed = await buildAndSignLabelSet({
         window: currentWindow, precompute, segments, barStepMs, reviewerId,
       })
-      const saved = await saveLabelSetToData(signed, windowId)
+      const saved = await saveLabelSetToData(signed, windowId, manifest?.label_output_subdir)
       markWindowSaved(windowId)
       setExportState({ kind: 'done', hash: signed.content_hash_sha256, path: saved.path })
       return true

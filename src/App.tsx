@@ -45,7 +45,8 @@ function App() {
     let cancelled = false
     void (async () => {
       try {
-        const res = await fetch('/api/label-set-progress')
+        const sub = manifest.label_output_subdir
+        const res = await fetch('/api/label-set-progress' + (sub ? `?subdir=${encodeURIComponent(sub)}` : ''))
         if (!res.ok) return
         const payload = (await res.json()) as { window_ids?: string[] }
         if (!cancelled && Array.isArray(payload.window_ids)) {

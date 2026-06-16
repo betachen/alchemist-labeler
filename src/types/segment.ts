@@ -33,6 +33,20 @@ export type SamplingReason =
   | 'rare_structure_samples'
   | 'random_baseline_samples'
 
+// Who produced the label and under what visibility — the §5b certifying axis.
+// `human_blind`: labeled without seeing any model/candidate output (audit_mode
+// blind) — the ONLY provenance the analyzer accepts into the certifying set.
+// `ai_proposed_human_confirmed`: the reviewer saw the AI candidate first
+// (audit_mode assisted) — usable for fit/diagnostics, never for certification.
+export type AnnotatorProvenance = 'human_blind' | 'ai_proposed_human_confirmed'
+
+// Provenance follows audit_mode 1:1: a blind audit is human_blind; an assisted
+// audit means the human confirmed an AI proposal. Derived at export time so the
+// certifying axis can never disagree with the recorded audit_mode.
+export function annotatorProvenanceForMode(mode: AuditMode): AnnotatorProvenance {
+  return mode === 'blind' ? 'human_blind' : 'ai_proposed_human_confirmed'
+}
+
 export type SegmentState =
   | 'unreviewed'
   | 'human_prelabel'

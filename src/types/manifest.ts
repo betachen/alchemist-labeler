@@ -21,6 +21,11 @@ export interface Manifest {
   manifest_version: string
   pl_proposal_version: PLProposalVersion
   windows: WindowEntry[]
+  // Pilot-plan-derived manifests (scripts/plan-to-manifest.mjs) carry these so
+  // the UI routes output to the pilot's label dir and provenance traces back to
+  // the frozen plan. Absent on hand-authored manifests (default labels/ dir).
+  label_output_subdir?: string
+  plan_sha256?: string
   content_hash_sha256: string
 }
 

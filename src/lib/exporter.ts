@@ -1,5 +1,6 @@
 import type { Precompute, WindowEntry } from '../types/manifest'
 import type {
+  AnnotatorProvenance,
   AuditMode,
   LabelConfidence,
   PrimaryLabel,
@@ -10,6 +11,7 @@ import type {
 import {
   PRIMARY_VOCABULARY,
   STRUCTURE_TAG_ORDER,
+  annotatorProvenanceForMode,
   sortStructureTags,
   terminalDisplayState,
 } from '../types/segment'
@@ -37,6 +39,7 @@ interface ExportSegment {
   structure_tags: StructureTag[]
   label_confidence: LabelConfidence
   audit_mode: AuditMode
+  annotator_provenance: AnnotatorProvenance
   sampling_reason: SamplingReason
   source: 'accepted' | 'edited' | 'rejected_then_relabeled'
   pl_slope: number
@@ -153,6 +156,8 @@ function buildUnsignedLabelSet(input: BuildLabelSetInput): LabelSet {
       structure_tags:   sortStructureTags(seg.structure_tags),
       label_confidence: seg.label_confidence,
       audit_mode:       seg.audit_mode,
+      // Certifying axis — derived 1:1 from audit_mode so it can never disagree.
+      annotator_provenance: annotatorProvenanceForMode(seg.audit_mode),
       sampling_reason:  seg.sampling_reason,
       source,
       pl_slope: seg.pl_slope,
@@ -243,13 +248,20 @@ export interface SaveLabelSetResult {
   path: string
 }
 
-export async function saveLabelSetToData(labelSet: LabelSet, windowId: string): Promise<SaveLabelSetResult> {
+export async function saveLabelSetToData(
+  labelSet: LabelSet,
+  windowId: string,
+  subdir?: string,
+): Promise<SaveLabelSetResult> {
   const res = await fetch('/api/label-set', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
       filename: labelSetFilename(windowId),
       content: labelSetPrettyJson(labelSet),
+      // Optional output subdir under /data/alchemist-labeler/ (e.g. the pilot's
+      // labels_pilot_2023h2). Omitted → the default labels/ dir.
+      ...(subdir ? { subdir } : {}),
     }),
   })
   const payload = (await res.json().catch(() => null)) as { path?: string; error?: string } | null

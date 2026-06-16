@@ -2,8 +2,22 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
-const LABEL_OUTPUT_DIR = '/data/alchemist-labeler/labels'
+const LABEL_BASE_DIR = '/data/alchemist-labeler'
+const LABEL_OUTPUT_DIR = `${LABEL_BASE_DIR}/labels`
 const MAX_LABEL_SET_BYTES = 25 * 1024 * 1024
+
+// Output subdirs are an explicit ALLOWLIST, not just a traversal-safe pattern:
+// empty → the default labels/ dir; otherwise the value must be a known pilot dir.
+// Extend this set when a new pilot's label dir is added.
+const ALLOWED_LABEL_SUBDIRS = new Set(['labels_pilot_2023h2'])
+
+function resolveLabelDir(subdir) {
+  if (subdir === undefined || subdir === null || subdir === '') return LABEL_OUTPUT_DIR
+  if (typeof subdir !== 'string' || !ALLOWED_LABEL_SUBDIRS.has(subdir)) {
+    throw new Error(`label output subdir not in allowlist: ${subdir}`)
+  }
+  return `${LABEL_BASE_DIR}/${subdir}`
+}
 
 function localLabelSetWriter() {
   return {
@@ -35,8 +49,9 @@ function localLabelSetWriter() {
             throw new Error('content is not a signed manual_regime_audit_v1 label_set')
           }
 
-          await mkdir(LABEL_OUTPUT_DIR, { recursive: true })
-          const outPath = path.join(LABEL_OUTPUT_DIR, filename)
+          const outDir = resolveLabelDir(body?.subdir)
+          await mkdir(outDir, { recursive: true })
+          const outPath = path.join(outDir, filename)
           await writeFile(outPath, content, 'utf8')
           sendJson(res, 200, { path: outPath })
         } catch (e) {
@@ -51,7 +66,9 @@ function localLabelSetWriter() {
 
         try {
           const { readdir } = await import('node:fs/promises')
-          const names = await readdir(LABEL_OUTPUT_DIR).catch((e) => {
+          const url = new URL(req.url ?? '', 'http://localhost')
+          const progressDir = resolveLabelDir(url.searchParams.get('subdir') ?? undefined)
+          const names = await readdir(progressDir).catch((e) => {
             if (e && e.code === 'ENOENT') return []
             throw e
           })
