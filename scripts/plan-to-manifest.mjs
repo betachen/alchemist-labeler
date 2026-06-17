@@ -142,8 +142,8 @@ function main() {
       fail('precompute is_range != period is_range')
     if (pc.market !== market) fail(`precompute market ${pc.market} != plan ${market}`)
     if (pc.interval !== timeframe) fail(`precompute interval ${pc.interval} != plan ${timeframe}`)
-    if (canonical(pc.pl_proposal_version) !== canonical(plan.pl_proposal_version))
-      fail('precompute pl_proposal_version != plan pl_proposal_version')
+    if (canonical(pc.segmenter) !== canonical(plan.segmenter))
+      fail('precompute segmenter != plan segmenter')
     // segment_census must reproduce precompute.pl_segments under the frozen
     // convention: census[i] = {idx:i, start_ms: pl[i].start_ms, end_ms: pl[i].end_ms+STEP}.
     // Without this a re-signed plan could carry a tampered census the labeler would
@@ -175,7 +175,7 @@ function main() {
   // object WITHOUT content_hash_sha256, then attach it.
   const unsigned = {
     manifest_version: manifestVersion,
-    pl_proposal_version: plan.pl_proposal_version,
+    segmenter: plan.segmenter,
     windows,
     label_output_subdir: basename(plan.labeling.output_dir),
     plan_sha256: plan.plan_sha256,

@@ -1,7 +1,8 @@
-export interface PLProposalVersion {
+export interface Segmenter {
+  algo: string
+  version: string
+  params_hash: string
   code_git_sha: string
-  smaPeriod: number
-  turningPointPeriod: number
 }
 
 export interface IsRange {
@@ -19,7 +20,7 @@ export interface WindowEntry {
 
 export interface Manifest {
   manifest_version: string
-  pl_proposal_version: PLProposalVersion
+  segmenter: Segmenter
   windows: WindowEntry[]
   // Pilot-plan-derived manifests (scripts/plan-to-manifest.mjs) carry these so
   // the UI routes output to the pilot's label dir and provenance traces back to
@@ -52,8 +53,9 @@ export interface HTEntry {
 }
 
 // ── Opt-in weak-label layer ────────────────────────────────────────────────
-// Emitted by `pl-export --emit-system-opinions`. Present only when the
-// precompute was generated with that flag. In v1 the labeler consumes this
+// Emitted by alchemist-weaklabel's full (non-blind) precompute. Present only
+// when the precompute carries opinions; the blind pilot precompute omits this
+// layer entirely. In v1 the labeler consumes this
 // layer SOLELY to source each segment's `sampling_reason` — it is NOT shown in
 // the UI and is NOT the human label. system_opinion / candidate labels stay
 // distinguishable from the reviewer's `primary_label` (see
@@ -94,8 +96,8 @@ export interface SystemOpinion {
   start_ms: number
   end_ms: number
   sampling_bucket: string
-  // Slope-derived weak label emitted by pl-export --emit-system-opinions.
-  // Only uptrend/downtrend are derivable from PL slope; richer fields below
+  // Slope-derived weak label from alchemist-weaklabel's weak-label layer.
+  // Only uptrend/downtrend are derivable from segment slope; richer fields below
   // are reserved for future assisted-mode extensions (阶段 2b).
   suggested_label?: string
   candidate_primary_label?: string
@@ -109,12 +111,12 @@ export interface Precompute {
   market: string
   interval: string
   is_range: IsRange
-  pl_proposal_version: PLProposalVersion
+  segmenter: Segmenter
   bars: Bar[]
   pl_segments: PLSegment[]
   ht_trendline: HTEntry[]
   // Optional weak-label layer — see WeakLabelVersion above. Indexed 1:1 with
-  // `pl_segments` (pl-export builds both from the same turning-point loop).
+  // `pl_segments`. The certification-blind pilot precompute omits this layer.
   weak_label_version?: WeakLabelVersion
   segment_features?: SegmentFeature[]
   system_opinions?: SystemOpinion[]

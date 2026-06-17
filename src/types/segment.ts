@@ -25,8 +25,9 @@ export type LabelConfidence = 'high' | 'medium' | 'low'
 export type AuditMode = 'blind' | 'assisted'
 
 // Why the segment was selected for audit. Sourced from the weak-label rules'
-// sampling bucket (pl-export --emit-system-opinions); falls back to
-// `random_baseline_samples` when the precompute carries no system opinions.
+// sampling bucket (alchemist-weaklabel's weak-label layer); falls back to
+// `random_baseline_samples` when the precompute carries no system opinions
+// (the blind pilot precompute always falls back).
 export type SamplingReason =
   | 'high_confidence_rule_samples'
   | 'low_confidence_or_disagreement_samples'
@@ -115,8 +116,8 @@ export interface Segment {
   // v1: sourced from the precompute's weak-label sampling bucket, or
   // `random_baseline_samples` when absent.
   sampling_reason: SamplingReason
-  // Weak-label suggestion from system_opinions (pl-export --emit-system-opinions).
-  // null when the precompute was generated without weak labels.
+  // Weak-label suggestion from system_opinions (alchemist-weaklabel's weak-label layer).
+  // null when the precompute was generated without weak labels (e.g. the blind pilot).
   // Displayed in the StatusStrip and chart only when sessionAuditMode === 'assisted'.
   suggested_label: string | null
   state: SegmentState

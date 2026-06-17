@@ -70,7 +70,7 @@ export interface LabelSet {
   is_range: { start_ms: number; end_ms: number }
   primary_vocabulary: readonly PrimaryLabel[]
   structure_tag_vocabulary: readonly StructureTag[]
-  pl_proposal_version: Precompute['pl_proposal_version']
+  segmenter: Precompute['segmenter']
   ht_trendline_overlay_used: boolean
   segments: ExportSegment[]
   coverage: CoverageBlock
@@ -188,7 +188,7 @@ function buildUnsignedLabelSet(input: BuildLabelSetInput): LabelSet {
     is_range: { start_ms: window.is_range.start_ms, end_ms: window.is_range.end_ms },
     primary_vocabulary: PRIMARY_VOCABULARY,
     structure_tag_vocabulary: STRUCTURE_TAG_ORDER,
-    pl_proposal_version: precompute.pl_proposal_version,
+    segmenter: precompute.segmenter,
     ht_trendline_overlay_used: precompute.ht_trendline.length > 0,
     segments: exportSegments,
     coverage: {
