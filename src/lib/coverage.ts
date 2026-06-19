@@ -1,5 +1,5 @@
 import type { Segment, StructureTag } from '../types/segment'
-import { STRUCTURE_TAG_ORDER } from '../types/segment'
+import { STRUCTURE_TAG_ORDER, effectiveEndMs, effectiveStartMs } from '../types/segment'
 
 // manual_regime_audit_v1 audit completeness, replacing the legacy manual_v1
 // single `active_coverage` gate. Per signal-substrate-v1.md §"Load-bearing
@@ -43,15 +43,6 @@ export interface CoverageReport {
   can_export: boolean
 }
 
-function effectiveEnd(seg: Segment): number {
-  return seg.end_ms_override ?? seg.pl_end_ms
-}
-
-function effectiveStart(segments: Segment[], i: number): number {
-  if (i === 0) return segments[0].pl_start_ms
-  return effectiveEnd(segments[i - 1])
-}
-
 function emptyTagRecord(): Record<StructureTag, number> {
   const record = {} as Record<StructureTag, number>
   for (const tag of STRUCTURE_TAG_ORDER) record[tag] = 0
@@ -74,8 +65,8 @@ export function computeCoverage(segments: Segment[], barStepMs: number): Coverag
 
   for (let i = 0; i < segments.length; i++) {
     const seg   = segments[i]
-    const start = effectiveStart(segments, i)
-    const end   = effectiveEnd(seg)
+    const start = effectiveStartMs(seg, i > 0 ? segments[i - 1] : null, barStepMs)
+    const end   = effectiveEndMs(seg, barStepMs)
     // Half-open: a 100-bar segment spans [t, t + 100*step). Adjacent segments
     // share boundaries so this is the only way to avoid double-counting.
     const bars = barStepMs > 0 ? Math.max(0, Math.round((end - start) / barStepMs)) : 0

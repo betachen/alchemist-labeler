@@ -12,6 +12,8 @@ import {
   PRIMARY_VOCABULARY,
   STRUCTURE_TAG_ORDER,
   annotatorProvenanceForMode,
+  effectiveEndMs,
+  effectiveStartMs,
   sortStructureTags,
   terminalDisplayState,
 } from '../types/segment'
@@ -78,24 +80,16 @@ export interface LabelSet {
   created_at_utc: string
 }
 
-function effectiveEnd(seg: Segment): number {
-  return seg.end_ms_override ?? seg.pl_end_ms
-}
-
-function effectiveStart(segs: Segment[], i: number): number {
-  if (i === 0) return segs[0].pl_start_ms
-  return effectiveEnd(segs[i - 1])
-}
-
 // Per-segment HT_TRENDLINE slope: first-to-last linear slope of HT values
-// falling within [start_ms, end_ms]. Returns 0 if fewer than 2 entries
-// (segments entirely inside the HT warmup zone — early segments only).
+// falling within the half-open range [start_ms, end_ms). Returns 0 if fewer
+// than 2 entries (segments entirely inside the HT warmup zone — early segments
+// only).
 function htSlopeForRange(precompute: Precompute, startMs: number, endMs: number): number {
   let first: { ms: number; value: number } | null = null
   let last:  { ms: number; value: number } | null = null
   for (const e of precompute.ht_trendline) {
-    if (e.ms < startMs) continue
-    if (e.ms > endMs)   break
+    if (e.ms < startMs)  continue
+    if (e.ms >= endMs)   break
     if (first === null) first = e
     last = e
   }
@@ -138,8 +132,8 @@ function buildUnsignedLabelSet(input: BuildLabelSetInput): LabelSet {
           `Caller must gate on can_export.`,
       )
     }
-    const start = effectiveStart(segments, i)
-    const end   = effectiveEnd(seg)
+    const start = effectiveStartMs(seg, i > 0 ? segments[i - 1] : null, barStepMs)
+    const end   = effectiveEndMs(seg, barStepMs)
     const display = terminalDisplayState(seg)
     // Display state is 'rejected_then_relabeled' when (accepted && was_rejected).
     // Edited+was_rejected stays 'edited' — was_rejected is a separate signal

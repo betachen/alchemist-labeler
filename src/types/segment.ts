@@ -153,13 +153,32 @@ export function sortStructureTags(tags: readonly StructureTag[]): StructureTag[]
   )
 }
 
-export function effectiveEndMs(seg: Segment): number {
-  return seg.end_ms_override ?? seg.pl_end_ms
+// Canonical HALF-OPEN export boundaries — these MUST match the pre-declared
+// plan `segment_census`, which is the SSOT for segment identity end-to-end
+// (signal-substrate-v1.md §5b: blind set "declared + content-hashed BEFORE
+// labeling"; §8.1 label loader "retains … segment identity end-to-end").
+//
+// The precompute's `pl_end_ms` is the INCLUSIVE last-bar timestamp of a segment
+// (consecutive segments satisfy `pl[i+1].start_ms == pl[i].end_ms + barStep`).
+// The census expresses the same partition as half-open intervals
+// `[start, end)` where `end == pl_end_ms + barStep` (uniformly, including the
+// final segment → `is_range.end_ms + barStep`). Treating the inclusive
+// `pl_end_ms` directly as a half-open boundary drops one bar per segment and
+// shifts every segment back by a bar — the off-by-one that made exported
+// ranges disagree with the census.
+//
+// An edit `end_ms_override` is stored in INCLUSIVE-bar (display) space, same as
+// `pl_end_ms`, so it gets the same `+ barStep` conversion here.
+export function effectiveEndMs(seg: Segment, barStepMs: number): number {
+  return (seg.end_ms_override ?? seg.pl_end_ms) + barStepMs
 }
 
-export function effectiveStartMs(seg: Segment, prev: Segment | null): number {
+export function effectiveStartMs(seg: Segment, prev: Segment | null, barStepMs: number): number {
+  // Segment 0 starts at its own precompute start (== census start). Every later
+  // segment shares the previous segment's half-open end (the editable boundary),
+  // keeping the partition gap-free and census-aligned.
   if (!prev) return seg.pl_start_ms
-  return effectiveEndMs(prev)
+  return effectiveEndMs(prev, barStepMs)
 }
 
 export function terminalDisplayState(seg: Segment): SegmentState | 'rejected_then_relabeled' {
