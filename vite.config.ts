@@ -9,7 +9,7 @@ const MAX_LABEL_SET_BYTES = 25 * 1024 * 1024
 // Output subdirs are an explicit ALLOWLIST, not just a traversal-safe pattern:
 // empty → the default labels/ dir; otherwise the value must be a known pilot dir.
 // Extend this set when a new pilot's label dir is added.
-const ALLOWED_LABEL_SUBDIRS = new Set(['labels_pilot_2023h2'])
+const ALLOWED_LABEL_SUBDIRS = new Set(['labels_pilot_2023h2', 'labels_pathA_2021'])
 
 function resolveLabelDir(subdir) {
   if (subdir === undefined || subdir === null || subdir === '') return LABEL_OUTPUT_DIR
